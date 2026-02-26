@@ -215,8 +215,14 @@ cp .env.example .env
 
 ### Initialize App DB
 
+**Fresh install:**
 ```bash
 psql $DATABASE_URL -f backend/scripts/init-schema.sql
+```
+
+**Existing DB (no conflict with existing `queries` table):**
+```bash
+psql $DATABASE_URL -f backend/scripts/init-querycarbon.sql
 ```
 
 ### Run

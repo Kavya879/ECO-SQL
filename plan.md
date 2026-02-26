@@ -59,44 +59,44 @@ Deliver: end-to-end flow from SQL input to emissions and classification.
 
 ### Backend
 
-- [ ] **API Endpoint:** `POST /api/analyze-query`
-  - [ ] Accept `query` (string), optional `connectionId`, optional `hardwareConfig` override, optional `dryRun` (skip EXPLAIN ANALYZE).
-  - [ ] Connect to target PostgreSQL instance (dataset DB).
-  - [ ] Execute `EXPLAIN ANALYZE` when not dry-run; otherwise use dry-run fallback.
-  - [ ] **Dry-run fallback chain:** (3) Historical avg runtime by query fingerprint → (1) Planner cost × calibration factor.
-  - [ ] Parse EXPLAIN output for runtime, total plan cost, rows examined.
-  - [ ] Compute Energy, Operational Emissions, Embodied Emissions, SCI, Sustainability Score, tier.
-  - [ ] Persist query, plan, results, `runtime_source` (measured | estimated), score breakdown, weights/baselines snapshot.
-  - [ ] Return analysis payload including `runtimeSource: "measured" | "estimated"`.
+- [x] **API Endpoint:** `POST /api/analyze-query`
+  - [x] Accept `query` (string), optional `connectionId`, optional `hardwareConfig` override, optional `dryRun` (skip EXPLAIN ANALYZE).
+  - [x] Connect to target PostgreSQL instance (dataset DB).
+  - [x] Execute `EXPLAIN ANALYZE` when not dry-run; otherwise use dry-run fallback.
+  - [x] **Dry-run fallback chain:** (3) Historical avg runtime by query fingerprint → (1) Planner cost × calibration factor.
+  - [x] Parse EXPLAIN output for runtime, total plan cost, rows examined.
+  - [x] Compute Energy, Operational Emissions, Embodied Emissions, SCI, Sustainability Score, tier.
+  - [x] Persist query, plan, results, `runtime_source` (measured | estimated), score breakdown, weights/baselines snapshot.
+  - [x] Return analysis payload including `runtimeSource: "measured" | "estimated"`.
 
-- [ ] **Formula integration module**
-  - [ ] **Energy (kWh):** `E = t × (n_c × P_c × u_c + n_mem × 0.3725) × PUE × 0.001` (Green Algorithms 2021)
-    - [ ] `t` from EXPLAIN ANALYZE (or dry-run fallback) in seconds.
-    - [ ] `n_c`, `P_c`, `u_c`, `n_mem` from hardware config or defaults.
-  - [ ] **Operational Emissions:** `O = E × I` (I = grid carbon intensity, gCO2eq/kWh).
-  - [ ] **Embodied Emissions:** `M = TE × (TiR / EL) × (RR / ToR)` — TiR = query time in hours; defaults: TE=1.6e6, EL=35040, RR=0.5.
-  - [ ] **SCI:** `SCI = (O + M) / R`, R = 1 query.
-  - [ ] **Sustainability Score:** See Phase 2 section (implement in Phase 1 for analysis results).
+- [x] **Formula integration module**
+  - [x] **Energy (kWh):** `E = t × (n_c × P_c × u_c + n_mem × 0.3725) × PUE × 0.001` (Green Algorithms 2021)
+    - [x] `t` from EXPLAIN ANALYZE (or dry-run fallback) in seconds.
+    - [x] `n_c`, `P_c`, `u_c`, `n_mem` from hardware config or defaults.
+  - [x] **Operational Emissions:** `O = E × I` (I = grid carbon intensity, gCO2eq/kWh).
+  - [x] **Embodied Emissions:** `M = TE × (TiR / EL) × (RR / ToR)` — TiR = query time in hours; defaults: TE=1.6e6, EL=35040, RR=0.5.
+  - [x] **SCI:** `SCI = (O + M) / R`, R = 1 query.
+  - [x] **Sustainability Score:** See Phase 2 section (implement in Phase 1 for analysis results).
 
-- [ ] **Database**
-  - [ ] Ensure `queries` table has: `runtime_source`, `planner_cost`, `rows_examined`, `score`, `score_breakdown`, `weights_snapshot`, `baselines_snapshot`, `tier`.
+- [x] **Database**
+  - [x] Ensure `queries` table has: `runtime_source`, `planner_cost`, `rows_examined`, `score`, `score_breakdown`, `weights_snapshot`, `baselines_snapshot`, `tier`.
 
 ### Frontend
 
-- [ ] **Analyze Query screen**
-  - [ ] SQL Query Editor, "Load Sample", "Analyze Query", "Clear".
-  - [ ] Query metadata (lines, tables, JOIN detected).
-  - [ ] **Hardware Configuration panel:** CPU Cores, RAM (GB), CPU Utilization, Runtime [s], PUE, Grid Carbon Intensity.
-  - [ ] **Analysis Results panel:** Classification tag, Energy, Operational CO2, Embodied CO2, Total SCI.
-  - [ ] Badge/banner: "measured" vs "estimated" for runtime source.
-  - [ ] **Emission Analysis Complete modal:** gauge, sustainability rating, metric cards, Export, Optimize Query.
+- [x] **Analyze Query screen**
+  - [x] SQL Query Editor, "Load Sample", "Analyze Query", "Clear".
+  - [x] Query metadata (lines, tables, JOIN detected).
+  - [x] **Hardware Configuration panel:** CPU Cores, RAM (GB), CPU Utilization, PUE, Grid Carbon Intensity.
+  - [x] **Analysis Results panel:** Classification tag, Energy, Operational CO2, Embodied CO2, Total SCI.
+  - [x] Badge/banner: "measured" vs "estimated" for runtime source.
+  - [x] **Emission Analysis Complete modal:** gauge, sustainability rating, metric cards, Export, Optimize Query.
 
-- [ ] **Layout & navigation**
-  - [ ] Left sidebar: QueryCarbon, Dashboard, Analyze Query, Reports, Settings.
-  - [ ] User profile (mock for Phase 1).
+- [x] **Layout & navigation**
+  - [x] Left sidebar: QueryCarbon, Dashboard, Analyze Query, Reports, Settings.
+  - [x] User profile (mock for Phase 1).
 
-- [ ] **Error handling**
-  - [ ] Clear messages for invalid SQL, connection errors, analysis failures.
+- [x] **Error handling**
+  - [x] Clear messages for invalid SQL, connection errors, analysis failures.
 
 ---
 

@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS optimization_suggestions (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+INSERT INTO users (user_id, username, email, password_hash)
+VALUES ('00000000-0000-0000-0000-000000000001', 'demo', 'demo@querycarbon.local', '')
+ON CONFLICT (username) DO NOTHING;
+
 CREATE INDEX IF NOT EXISTS idx_queries_analyzed_at ON queries(analyzed_at);
 CREATE INDEX IF NOT EXISTS idx_queries_classification ON queries(classification);
 CREATE INDEX IF NOT EXISTS idx_queries_tier ON queries(tier);
