@@ -7,3 +7,27 @@ body {
   background: #0d1117;
   color: #c9d1d9;
 }
+a {
+  color: inherit;
+  text-decoration: none;
+}
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+}
+nav a {
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: #8b949e;
+  transition: background 0.15s, color 0.15s;
+}
+nav a:hover {
+  color: #c9d1d9;
+  background: #21262d;
+}
+nav a.active {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.1);
+}
