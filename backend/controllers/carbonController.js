@@ -9,7 +9,7 @@ const hardwareDetector = require('../services/hardwareDetector');
  */
 async function analyzeQuery(req, res) {
   try {
-    const { sql, database } = req.body;
+    const { sql, database, complexityMultiplier = 1 } = req.body;
 
     // Validate required SQL and database parameters
     if (!sql || typeof sql !== 'string' || !sql.trim()) {
@@ -30,7 +30,10 @@ async function analyzeQuery(req, res) {
       });
     }
 
-    const runtimeSeconds = queryResult.runtimeMs / 1000;
+    // Apply complexity multiplier to simulate larger datasets/operations
+    const actualRuntimeMs = queryResult.runtimeMs;
+    const simulatedRuntimeMs = actualRuntimeMs * parseFloat(complexityMultiplier || 1);
+    const runtimeSeconds = simulatedRuntimeMs / 1000;
 
     // Use auto-detected hardware config, merged with any user-provided overrides
     const hardwareConfig = hardwareDetector.mergeWithDefaults(req.body);
@@ -76,6 +79,9 @@ async function analyzeQuery(req, res) {
       row_count: queryResult.rowCount,
       fields: queryResult.fields,
       results_preview: queryResult.rows.slice(0, 10),
+      actual_runtime_ms: actualRuntimeMs,
+      simulated_runtime_s: runtimeSeconds,
+      complexity_multiplier: parseFloat(complexityMultiplier),
       ...metrics,
     });
   } catch (err) {

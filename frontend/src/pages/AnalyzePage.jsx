@@ -77,6 +77,7 @@ export default function AnalyzePage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [complexityMultiplier, setComplexityMultiplier] = useState(1);
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -116,6 +117,7 @@ export default function AnalyzePage() {
       const res = await analyzeQuery({
         sql,
         database: selectedDb,
+        complexityMultiplier,
         ...hw,
       });
       setResult(res);
@@ -177,6 +179,20 @@ export default function AnalyzePage() {
                 {databases.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
                 {databases.length === 0 && <option>Loading...</option>}
               </select>
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>Scale:</span>
+              <input 
+                type="range" 
+                min="1" 
+                max="10000" 
+                step="1"
+                value={complexityMultiplier}
+                onChange={e => setComplexityMultiplier(+e.target.value)}
+                style={{ width: 100, height: 5, cursor: 'pointer' }}
+                title="Simulate larger dataset (runtime multiplier)"
+              />
+              <span style={{ fontSize: 11, color: 'var(--green)', fontFamily: 'var(--font-mono)', minWidth: '50px' }}>
+                {complexityMultiplier === 1 ? '1x' : complexityMultiplier < 10 ? complexityMultiplier.toFixed(1) + 'x' : (complexityMultiplier / 1000).toFixed(1) + 'kx'}
+              </span>
             </div>
 
             <div className="editor-body">
@@ -326,6 +342,7 @@ export default function AnalyzePage() {
               <span>Util: {Math.round(hw.cpuUtilization * 100)}%</span>
               <span>PUE: {hw.pue}</span>
               <span>Grid: {hw.gridIntensity} gCO₂/kWh</span>
+              <span>Scale: {complexityMultiplier === 1 ? '1x' : complexityMultiplier < 10 ? complexityMultiplier.toFixed(1) + 'x' : (complexityMultiplier / 1000).toFixed(1) + 'kx'}</span>
               <span>DB: {selectedDb || '—'}</span>
             </div>
           </div>
@@ -380,6 +397,7 @@ export default function AnalyzePage() {
               {/* Runtime info */}
               <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
                 QID-{result.query_id} · Runtime {fmtRuntime(result.runtime_s)}
+                {result.complexity_multiplier > 1 && ` (simulated: ${result.complexity_multiplier}x)`}
                 {result.tables_involved?.length > 0 && ` · ${result.tables_involved.length} table ${result.tables_involved.length > 1 ? 'JOIN' : ''}`}
               </div>
 
@@ -409,7 +427,9 @@ export default function AnalyzePage() {
           {!result && !loading && !error && (
             <div className="empty-state">
               <div className="empty-state-icon">⚡</div>
-              <div className="empty-state-text">Enter a SQL query and hardware parameters, then click <strong>Analyze Query</strong> or press <code>Ctrl+Enter</code>.</div>
+              <div className="empty-state-text">
+                Enter a SQL query and adjust the <strong>Scale</strong> slider to simulate larger datasets (1x = actual, 100x+ = production scale). Click <strong>Analyze Query</strong> or press <code>Ctrl+Enter</code>.
+              </div>
             </div>
           )}
         </div>
