@@ -106,59 +106,54 @@ Deliver: Dashboard, Reports, sustainability scoring, configurability, export.
 
 ### Backend
 
-- [ ] **Sustainability scoring module**
-  - [ ] Formula: `S = 100 - clamp((w1×N_emissions + w2×N_cost + w3×N_duration + w4×N_rows) × 100, 0, 100)` — higher = greener.
-  - [ ] Log normalization for emissions and rows: `N_emissions = log(SCI+1)/log(SCI_baseline+1)`, `N_rows = log(rows+1)/log(rows_baseline+1)`.
-  - [ ] Linear normalization for cost and duration: `N_cost = planner_cost/cost_baseline`, `N_duration = execution_ms/duration_baseline`.
-  - [ ] Default weights: w1=0.40, w2=0.25, w3=0.20, w4=0.15 (must sum to 1.0).
-  - [ ] Default baselines: SCI_baseline=1.0, cost_baseline=10_000, duration_baseline=1_000, rows_baseline=100_000.
-  - [ ] Snapshot weights and baselines at analysis time for reproducibility.
-  - [ ] Derive `tier` from score (Excellent/Good/Moderate/Poor/Critical).
-  - [ ] Store: `score`, `score_breakdown`, `weights_snapshot`, `baselines_snapshot`, `tier` on `queries`.
+- [x] **Sustainability scoring module** (Phase 1)
+  - [x] Formula: `S = 100 - clamp((w1×N_emissions + w2×N_cost + w3×N_duration + w4×N_rows) × 100, 0, 100)` — higher = greener.
+  - [x] Log normalization for emissions and rows; linear for cost and duration.
+  - [x] Default weights and baselines; snapshot at analysis time.
+  - [x] Derive `tier` from score; store score_breakdown, weights_snapshot, baselines_snapshot, tier.
 
-- [ ] **Configurability (tiered)**
-  - [ ] **Level 1 — UI Settings:** weights w1–w4 (sum=1), tier thresholds, strict mode (block Critical).
-  - [ ] **Level 2 — Per-connection:** baselines, grid intensity I, embodied constants.
-  - [ ] **Level 3 — Hardcoded:** normalization approach, formula structure.
+- [x] **Configurability (tiered)**
+  - [x] **Level 1 — UI Settings:** weights w1–w4 (sum=1), tier thresholds, strict mode.
+  - [ ] **Level 2 — Per-connection:** baselines, grid intensity I (future).
+  - [x] **Level 3 — Hardcoded:** normalization, formula structure.
 
-- [ ] **API: `GET /api/query-history`**
-  - [ ] Paginated, filterable (classification, tier, date, tables), searchable (SQL snippet), sortable.
-  - [ ] Include `tier` in response.
+- [x] **API: `GET /api/query-history`**
+  - [x] Paginated, filterable (classification, tier, date), searchable (SQL snippet), sortable.
+  - [x] Summary (totalCo2, sustainable, highImpact) in response.
 
-- [ ] **API: `GET /api/query-details/:queryId`**
-  - [ ] Full analysis including score breakdown, weights/baselines snapshot.
+- [x] **API: `GET /api/query-details/:queryId`**
+  - [x] Full analysis including score breakdown, weights/baselines snapshot.
 
-- [ ] **API: `GET /api/dashboard-stats`**
-  - [ ] Total queries, Avg gCO2, Sustainability Score, Total CO2 Saved (est.) = Σ(SCI_before - SCI_after) for optimized queries.
-  - [ ] Classification/tier counts and percentages.
-  - [ ] Emissions trend (daily/weekly/monthly).
-  - [ ] Recent queries list.
-  - [ ] Baseline Reference for chart: rolling average or configurable baseline.
+- [x] **API: `GET /api/dashboard-stats`**
+  - [x] Total queries, Avg gCO2, Sustainability Score, Total CO2 Saved (placeholder).
+  - [x] Classification counts and percentages, pctChange vs previous period.
+  - [x] Emissions trend (daily), Recent queries, Baseline Reference.
 
-- [ ] **API: `GET /api/settings`** and **`PUT /api/settings`**
-  - [ ] Weights, tier thresholds, strict mode (Level 1).
+- [x] **API: `GET /api/settings`** and **`PUT /api/settings`**
+  - [x] Weights, tier thresholds, strict mode (Level 1).
 
 ### Frontend
 
-- [ ] **Dashboard**
-  - [ ] KPI cards, trend indicators.
-  - [ ] Emissions Trend chart: Operational Emissions + Baseline Reference.
-  - [ ] Recent Queries, date range selector, Export Report, Notifications (placeholder).
+- [x] **Dashboard**
+  - [x] KPI cards, trend indicators (vs last period).
+  - [x] Emissions Trend chart: Operational Emissions + Baseline Reference.
+  - [x] Recent Queries, date range selector, Export Report, Notifications (placeholder).
 
-- [ ] **Reports**
-  - [ ] Summary cards, search, filters (All Classifications, tier, date, All Tables).
-  - [ ] Sortable table, pagination, Export CSV, row click → query details.
+- [x] **Reports**
+  - [x] Summary cards (Total Queries, Total CO2, High Impact, Sustainable).
+  - [x] Search, filters (Classification, date range), sortable table, pagination.
+  - [x] Export CSV, row click → query details modal.
 
-- [ ] **Settings**
-  - [ ] Weights editor (w1–w4, sum=1 validation).
-  - [ ] Tier thresholds editor.
-  - [ ] Strict mode toggle (block Critical queries).
-  - [ ] Per-connection overrides (Level 2, advanced).
+- [x] **Settings**
+  - [x] Weights editor (w1–w4, sum=1 validation).
+  - [x] Tier thresholds editor (excellent, good, moderate, poor).
+  - [x] Strict mode toggle (block Critical queries).
+  - [ ] Per-connection overrides (Level 2, future).
 
-- [ ] **Export**
-  - [ ] Export Report: summary + chart data.
-  - [ ] Export (single query): JSON/PDF.
-  - [ ] Export CSV: Reports table.
+- [x] **Export**
+  - [x] Export Report (Dashboard): JSON summary + chart data.
+  - [x] Export (single query): JSON.
+  - [x] Export CSV (Reports table).
 
 ---
 
