@@ -597,6 +597,7 @@ export default function AnalyzeQuery() {
               </span>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
+                  onClick={() => window.open(`/api/export-query/${result.queryId}`, '_blank')}
                   style={{
                     padding: '8px 16px',
                     border: '1px solid #30363d',
