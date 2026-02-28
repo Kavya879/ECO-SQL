@@ -25,17 +25,29 @@ export const fmtTimeAgo = (dateStr) => {
 };
 
 export const classificationBadge = (cls) => {
-  if (!cls) return 'badge-sustainable';
+  if (!cls) return 'badge-excellent';
   const c = cls.toUpperCase();
-  if (c === 'SUSTAINABLE') return 'badge-sustainable';
+  if (c === 'EXCELLENT') return 'badge-excellent';
+  if (c === 'GOOD') return 'badge-good';
   if (c === 'MODERATE') return 'badge-moderate';
-  return 'badge-high';
+  if (c === 'POOR') return 'badge-poor';
+  if (c === 'CRITICAL') return 'badge-critical';
+  // Backward compatibility with old values
+  if (c === 'SUSTAINABLE') return 'badge-excellent';
+  if (c === 'HIGH IMPACT') return 'badge-critical';
+  return 'badge-moderate';
 };
 
 export const classificationShort = (cls) => {
-  if (!cls) return 'S';
+  if (!cls) return 'E';
   const c = cls.toUpperCase();
-  if (c === 'SUSTAINABLE') return 'S';
+  if (c === 'EXCELLENT') return 'E';
+  if (c === 'GOOD') return 'G';
   if (c === 'MODERATE') return 'M';
-  return 'H';
+  if (c === 'POOR') return 'P';
+  if (c === 'CRITICAL') return 'C';
+  // Backward compatibility
+  if (c === 'SUSTAINABLE') return 'E';
+  if (c === 'HIGH IMPACT') return 'C';
+  return 'M';
 };

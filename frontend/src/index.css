@@ -300,8 +300,13 @@ select.form-control {
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
-.badge-sustainable { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+.badge-excellent { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+.badge-good { background: rgba(77,201,255,0.12); color: var(--blue); border: 1px solid rgba(77,201,255,0.2); }
 .badge-moderate { background: rgba(245,166,35,0.12); color: var(--amber); border: 1px solid rgba(245,166,35,0.2); }
+.badge-poor { background: rgba(255,136,68,0.12); color: #ff8844; border: 1px solid rgba(255,136,68,0.2); }
+.badge-critical { background: rgba(255,77,77,0.12); color: var(--red); border: 1px solid rgba(255,77,77,0.2); }
+/* Keep old badge styles for backward compatibility */
+.badge-sustainable { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
 .badge-high { background: rgba(255,77,77,0.12); color: var(--red); border: 1px solid rgba(255,77,77,0.2); }
 .badge::before { content: '●'; font-size: 8px; }
 

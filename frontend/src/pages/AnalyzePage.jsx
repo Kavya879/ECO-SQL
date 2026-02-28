@@ -77,7 +77,6 @@ export default function AnalyzePage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [complexityMultiplier, setComplexityMultiplier] = useState(1);
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -117,7 +116,6 @@ export default function AnalyzePage() {
       const res = await analyzeQuery({
         sql,
         database: selectedDb,
-        complexityMultiplier,
         ...hw,
       });
       setResult(res);
@@ -131,8 +129,16 @@ export default function AnalyzePage() {
   const updateHw = (key, val) => setHw(prev => ({ ...prev, [key]: val }));
 
   const cls = result?.classification;
-  const badgeCls = !cls ? '' : cls === 'SUSTAINABLE' ? 'badge-sustainable' : cls === 'MODERATE' ? 'badge-moderate' : 'badge-high';
-  const clsColor = !cls ? 'var(--text-primary)' : cls === 'SUSTAINABLE' ? 'var(--green)' : cls === 'MODERATE' ? 'var(--amber)' : 'var(--red)';
+  const badgeCls = !cls ? '' : 
+    cls === 'EXCELLENT' ? 'badge-excellent' : 
+    cls === 'GOOD' ? 'badge-good' : 
+    cls === 'MODERATE' ? 'badge-moderate' : 
+    cls === 'POOR' ? 'badge-poor' : 
+    'badge-critical';
+  const clsColor = !cls ? 'var(--text-primary)' : 
+    cls === 'EXCELLENT' || cls === 'GOOD' ? 'var(--green)' : 
+    cls === 'MODERATE' ? 'var(--amber)' : 
+    'var(--red)';
 
   const queryMeta = (() => {
     if (!sql.trim()) return null;
@@ -179,21 +185,8 @@ export default function AnalyzePage() {
                 {databases.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
                 {databases.length === 0 && <option>Loading...</option>}
               </select>
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>Scale:</span>
-              <input 
-                type="range" 
-                min="1" 
-                max="10000" 
-                step="1"
-                value={complexityMultiplier}
-                onChange={e => setComplexityMultiplier(+e.target.value)}
-                style={{ width: 100, height: 5, cursor: 'pointer' }}
-                title="Simulate larger dataset (runtime multiplier)"
-              />
-              <span style={{ fontSize: 11, color: 'var(--green)', fontFamily: 'var(--font-mono)', minWidth: '50px' }}>
-                {complexityMultiplier === 1 ? '1x' : complexityMultiplier < 10 ? complexityMultiplier.toFixed(1) + 'x' : (complexityMultiplier / 1000).toFixed(1) + 'kx'}
-              </span>
             </div>
+
 
             <div className="editor-body">
               <div className="line-numbers">
@@ -342,7 +335,6 @@ export default function AnalyzePage() {
               <span>Util: {Math.round(hw.cpuUtilization * 100)}%</span>
               <span>PUE: {hw.pue}</span>
               <span>Grid: {hw.gridIntensity} gCO₂/kWh</span>
-              <span>Scale: {complexityMultiplier === 1 ? '1x' : complexityMultiplier < 10 ? complexityMultiplier.toFixed(1) + 'x' : (complexityMultiplier / 1000).toFixed(1) + 'kx'}</span>
               <span>DB: {selectedDb || '—'}</span>
             </div>
           </div>
@@ -372,9 +364,11 @@ export default function AnalyzePage() {
                 <SustainabilityGauge score={result.sustainability_score} />
                 <div>
                   {[
-                    { label: 'Sustainable', color: '#00ff88', range: '0 – 2.0' },
-                    { label: 'Moderate', color: '#f5a623', range: '2.0 – 5.0' },
-                    { label: 'High Impact', color: '#ff4d4d', range: '5.0+' },
+                    { label: 'Excellent', color: '#00ff88', range: '90 – 100' },
+                    { label: 'Good', color: '#4dc9ff', range: '70 – 89' },
+                    { label: 'Moderate', color: '#f5a623', range: '50 – 69' },
+                    { label: 'Poor', color: '#ff8844', range: '25 – 49' },
+                    { label: 'Critical', color: '#ff4d4d', range: '0 – 24' },
                   ].map(d => (
                     <div key={d.label} className="legend-item">
                       <div className="legend-label"><div className="legend-dot" style={{ background: d.color }} />{d.label}</div>
@@ -394,17 +388,13 @@ export default function AnalyzePage() {
                 <div className="sci-unit">gCO₂ / query</div>
               </div>
 
-              {/* Runtime info */}
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
-                QID-{result.query_id} · Runtime {fmtRuntime(result.runtime_s)}
-                {result.complexity_multiplier > 1 && ` (simulated: ${result.complexity_multiplier}x)`}
-                {result.tables_involved?.length > 0 && ` · ${result.tables_involved.length} table ${result.tables_involved.length > 1 ? 'JOIN' : ''}`}
-              </div>
-
               {/* Results preview */}
               {result.results_preview?.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Query Results Preview ({result.row_count} rows)</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                    Query Results: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{result.row_count} row{result.row_count !== 1 ? 's' : ''}</span> 
+                    (showing first {Math.min(result.results_preview.length, 10)})
+                  </div>
                   <div className="results-preview">
                     <table>
                       <thead>
@@ -421,6 +411,12 @@ export default function AnalyzePage() {
                   </div>
                 </div>
               )}
+
+              {/* Runtime info */}
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                QID-{result.query_id} · Actual: <span title={`Measured time: ${result.actual_runtime_ms.toFixed(3)}ms`}>{result.actual_runtime_ms.toFixed(3)}ms</span>
+                {result.tables_involved?.length > 0 && ` · ${result.tables_involved.length} table ${result.tables_involved.length > 1 ? 'JOIN' : ''}`}
+              </div>
             </>
           )}
 
@@ -428,7 +424,7 @@ export default function AnalyzePage() {
             <div className="empty-state">
               <div className="empty-state-icon">⚡</div>
               <div className="empty-state-text">
-                Enter a SQL query and adjust the <strong>Scale</strong> slider to simulate larger datasets (1x = actual, 100x+ = production scale). Click <strong>Analyze Query</strong> or press <code>Ctrl+Enter</code>.
+                Enter a SQL query and click <strong>Analyze Query</strong> to measure the carbon footprint (or press <code>Ctrl+Enter</code>).
               </div>
             </div>
           )}
