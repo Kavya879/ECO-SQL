@@ -1,91 +1,253 @@
 /**
  * Carbon Calculator Service
- * Implements Green Algorithms formulas (Lannelongue et al., 2021)
+ * References: Green Algorithms 2021 (Lannelongue et al.), ISO/IEC 21031:2024
  */
 
+// ===== CONSTANTS =====
+const DEFAULTS = {
+  PUE: 1.3, // Power Usage Effectiveness
+  TE: 1600000, // Total Embodied Carbon (gCO2eq) - mid-range server
+  EL: 35040, // Expected hardware lifespan (hours) - 4 years
+  RR: 0.5, // Resource Reserved ratio
+  ToR: 1, // Total Resources
+  MEM_POWER: 0.3725, // W/GB
+  GRID_INTENSITY: 442, // gCO2eq/kWh - India default (2024)
+};
+
+const WEIGHTS = {
+  emissions: 0.40,
+  cost: 0.25,
+  duration: 0.20,
+  rows: 0.15,
+};
+
+const BASELINES = {
+  SCI: 0.1, // gCO2eq - typical for small-medium queries
+  cost: 5000, // PostgreSQL cost units - typical for average query (1-10k range)
+  duration: 500, // ms - typical query execution time (sweet spot for avg queries)
+  rows: 10000, // rows - typical result set size
+};
+
+const CLASSIFICATION_TIERS = {
+  EXCELLENT: { min: 90, max: 100, label: 'Excellent', description: 'Feasible, green' },
+  GOOD: { min: 70, max: 89, label: 'Good', description: 'Feasible' },
+  MODERATE: { min: 50, max: 69, label: 'Moderate', description: 'Feasible with caveats' },
+  POOR: { min: 25, max: 49, label: 'Poor', description: 'Not recommended' },
+  CRITICAL: { min: 0, max: 24, label: 'Critical', description: 'Infeasible (blockable in strict mode)' },
+};
+
 /**
- * Green Algorithms Energy Equation
+ * Clamp value between min and max
+ */
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Energy Calculation
  * E = t × (n_c × P_c × u_c + n_mem × 0.3725) × PUE × 0.001
  *
  * @param {object} params
- * @param {number} params.runtimeHours - Query runtime in hours
+ * @param {number} params.executionSeconds - Execution time in seconds
  * @param {number} params.cpuCores - Number of CPU cores
- * @param {number} params.powerPerCore - Power per core in Watts
- * @param {number} params.cpuUtilization - CPU utilization 0–1
- * @param {number} params.ramGb - RAM in GB
- * @param {number} params.pue - Power Usage Effectiveness
+ * @param {number} params.powerPerCore - Power per CPU core (W)
+ * @param {number} params.cpuUtilization - CPU utilization (0-1)
+ * @param {number} params.memoryGb - Memory (GB)
+ * @param {number} params.pue - Power Usage Effectiveness (default 1.3)
  * @returns {number} Energy in kWh
  */
-function calculateEnergy({ runtimeHours, cpuCores, powerPerCore, cpuUtilization, ramGb, pue }) {
+function calculateEnergy({
+  executionSeconds,
+  cpuCores,
+  powerPerCore,
+  cpuUtilization,
+  memoryGb,
+  pue = DEFAULTS.PUE,
+}) {
   const cpuPower = cpuCores * powerPerCore * cpuUtilization;
-  const memPower = ramGb * 0.3725;
-  const energy = runtimeHours * (cpuPower + memPower) * pue * 0.001;
-  return energy;
+  const memPower = memoryGb * DEFAULTS.MEM_POWER;
+  const totalPower = cpuPower + memPower;
+  
+  // Convert seconds to hours for calculation
+  const executionHours = executionSeconds / 3600;
+  const energyKwh = executionHours * totalPower * pue * 0.001;
+  
+  return energyKwh;
 }
 
 /**
  * Operational Emissions
  * O = E × I
  *
- * @param {number} energyKwh
- * @param {number} gridIntensity - gCO2eq/kWh
- * @returns {number} gCO2eq
+ * @param {number} energyKwh - Energy consumed (kWh)
+ * @param {number} gridIntensity - Grid carbon intensity (gCO2eq/kWh)
+ * @returns {number} Operational emissions (gCO2eq)
  */
-function calculateOperationalEmissions(energyKwh, gridIntensity) {
+function calculateOperationalEmissions(energyKwh, gridIntensity = DEFAULTS.GRID_INTENSITY) {
   return energyKwh * gridIntensity;
 }
 
 /**
- * Embodied Emissions (SCI Specification)
+ * Embodied Emissions
  * M = TE × (TiR / EL) × (RR / ToR)
  *
  * @param {object} params
+ * @param {number} params.executionSeconds - Query execution time (seconds)
  * @param {number} params.te - Total embodied carbon (gCO2eq)
- * @param {number} params.tir - Time in reporting period (hours) = runtimeHours
- * @param {number} params.el - Hardware lifespan (hours)
- * @param {number} params.rr - Reserved resource ratio (0–1)
+ * @param {number} params.el - Expected hardware lifespan (hours)
+ * @param {number} params.rr - Resource Reserved ratio
  * @param {number} params.tor - Total operating time (hours)
- * @returns {number} gCO2eq
+ * @returns {number} Embodied emissions (gCO2eq)
  */
-function calculateEmbodiedEmissions({ te, tir, el, rr, tor }) {
-  return te * (tir / el) * (rr / tor);
+function calculateEmbodiedEmissions({
+  executionSeconds,
+  te = DEFAULTS.TE,
+  el = DEFAULTS.EL,
+  rr = DEFAULTS.RR,
+  tor = DEFAULTS.ToR,
+}) {
+  // Convert execution time from seconds to hours
+  const tir = executionSeconds / 3600;
+  const embodiedEmissions = te * (tir / el) * (rr / tor);
+  
+  return embodiedEmissions;
 }
 
 /**
  * Software Carbon Intensity
  * SCI = (O + M) / R
- * For Phase 1: R = 1 (one SQL query)
+ * R = Functional unit (1 SQL query)
  *
- * @param {number} operational - gCO2eq
- * @param {number} embodied - gCO2eq
- * @returns {number} gCO2eq / query
+ * @param {number} operationalEmissions - gCO2eq
+ * @param {number} embodiedEmissions - gCO2eq
+ * @returns {number} SCI in gCO2eq per query
  */
-function calculateSCI(operational, embodied) {
-  const R = 1;
-  return (operational + embodied) / R;
+function calculateSCI(operationalEmissions, embodiedEmissions) {
+  const R = 1; // Functional unit: 1 SQL query
+  return (operationalEmissions + embodiedEmissions) / R;
 }
 
 /**
- * Classify emissions level
- * Sustainable: 0–2.0, Moderate: 2.0–5.0, High Impact: 5.0+
+ * Normalize emissions using log scale to handle large ranges
+ * N_emissions = log(SCI + 1) / log(SCI_baseline + 1)
+ *
+ * @param {number} sci - Software Carbon Intensity
+ * @param {number} baseline - SCI baseline (default 1.0)
+ * @returns {number} Normalized emissions (0-1 range)
  */
-function classifyEmissions(totalGco2) {
-  if (totalGco2 < 2.0) return 'SUSTAINABLE';
-  if (totalGco2 < 5.0) return 'MODERATE';
-  return 'HIGH IMPACT';
+function normalizeEmissions(sci, baseline = BASELINES.SCI) {
+  return Math.log(sci + 1) / Math.log(baseline + 1);
 }
 
 /**
- * Sustainability score (0–100, higher = greener)
+ * Normalize rows examined using log scale
+ * N_rows = log(rows + 1) / log(rows_baseline + 1)
+ *
+ * @param {number} rows - Rows examined
+ * @param {number} baseline - Rows baseline (default 100,000)
+ * @returns {number} Normalized rows (0-1 range)
  */
-function calculateSustainabilityScore(totalGco2) {
-  if (totalGco2 <= 0) return 100;
-  const score = Math.max(0, Math.round(100 - (totalGco2 / 10) * 100));
-  return Math.min(100, score);
+function normalizeRows(rows, baseline = BASELINES.rows) {
+  return Math.log(rows + 1) / Math.log(baseline + 1);
+}
+
+/**
+ * Normalize cost using log scale (like emissions) to handle large ranges
+ * N_cost = log(cost + 1) / log(baseline + 1)
+ *
+ * @param {number} cost - Planner cost
+ * @param {number} baseline - Cost baseline (default 5,000)
+ * @returns {number} Normalized cost
+ */
+function normalizeCost(cost, baseline = BASELINES.cost) {
+  // Use log scale to cap the impact of very high costs
+  return Math.log(cost + 1) / Math.log(baseline + 1);
+}
+
+/**
+ * Normalize duration using linear scale
+ * N_duration = execution_ms / duration_baseline
+ *
+ * @param {number} durationMs - Execution duration (milliseconds)
+ * @param {number} baseline - Duration baseline (default 500 ms)
+ * @returns {number} Normalized duration
+ */
+function normalizeDuration(durationMs, baseline = BASELINES.duration) {
+  return durationMs / baseline;
+}
+
+/**
+ * Calculate Sustainability Score (0-100)
+ * S = 100 - clamp((w1×N_emissions + w2×N_cost + w3×N_duration + w4×N_rows) × 100, 0, 100)
+ * Higher = greener
+ *
+ * @param {object} params
+ * @param {number} params.sci - Software Carbon Intensity (gCO2eq)
+ * @param {number} params.plannerCost - PostgreSQL planner cost
+ * @param {number} params.executionMs - Execution duration (milliseconds)
+ * @param {number} params.rowsExamined - Rows examined
+ * @param {object} params.weights - Custom weights (optional)
+ * @param {object} params.baselines - Custom baselines (optional)
+ * @returns {number} Sustainability score (0-100)
+ */
+function calculateSustainabilityScore({
+  sci,
+  plannerCost,
+  executionMs,
+  rowsExamined,
+  weights = WEIGHTS,
+  baselines = BASELINES,
+}) {
+  // Normalize all metrics
+  const normEmissions = normalizeEmissions(sci, baselines.SCI);
+  const normCost = normalizeCost(plannerCost, baselines.cost);
+  const normDuration = normalizeDuration(executionMs, baselines.duration);
+  const normRows = normalizeRows(rowsExamined, baselines.rows);
+
+  // Calculate weighted sum
+  const weightedSum =
+    weights.emissions * normEmissions +
+    weights.cost * normCost +
+    weights.duration * normDuration +
+    weights.rows * normRows;
+
+  // Apply formula: subtract from 100 and scale
+  const score = 100 - clamp(weightedSum * 100, 0, 100);
+
+  return Math.round(score);
+}
+
+/**
+ * Classify sustainability score into tiers
+ *
+ * @param {number} score - Sustainability score (0-100)
+ * @returns {object} Tier information with label and description
+ */
+function classifyScore(score) {
+  for (const [key, tier] of Object.entries(CLASSIFICATION_TIERS)) {
+    if (score >= tier.min && score <= tier.max) {
+      return {
+        tier: key,
+        label: tier.label,
+        description: tier.description,
+        score,
+      };
+    }
+  }
+  // Fallback (shouldn't happen with proper clamping)
+  return {
+    tier: 'CRITICAL',
+    label: 'Critical',
+    description: 'Infeasible (blockable in strict mode)',
+    score: 0,
+  };
 }
 
 /**
  * Extract table names from SQL query
+ *
+ * @param {string} sql - SQL query string
+ * @returns {Array<string>} Array of table names
  */
 function extractTables(sql) {
   const tables = new Set();
@@ -99,58 +261,139 @@ function extractTables(sql) {
 }
 
 /**
- * Main calculation entry point
+ * Comprehensive Carbon Analysis Calculation
+ * Implements all formulas from Green Algorithms 2021 and ISO/IEC 21031:2024
+ *
+ * @param {object} params
+ * @param {number} params.executionSeconds - Query execution time (seconds)
+ * @param {number} params.cpuCores - Number of CPU cores
+ * @param {number} params.powerPerCore - Power per CPU core (W)
+ * @param {number} params.cpuUtilization - CPU utilization (0-1)
+ * @param {number} params.memoryGb - Memory used (GB)
+ * @param {number} params.plannerCost - PostgreSQL planner cost
+ * @param {number} params.rowsExamined - Rows examined
+ * @param {number} params.pue - Power Usage Effectiveness (default 1.3)
+ * @param {number} params.gridIntensity - Grid carbon intensity gCO2eq/kWh (default 442)
+ * @param {number} params.te - Total embodied carbon (default 1,600,000)
+ * @param {number} params.el - Expected hardware lifespan hours (default 35,040)
+ * @param {number} params.rr - Resource reserved ratio (default 0.5)
+ * @param {number} params.tor - Total operating time (default 1)
+ * @param {object} params.weights - Custom weights (optional)
+ * @param {object} params.baselines - Custom baselines (optional)
+ * @returns {object} Comprehensive carbon analysis
  */
 function calculateAll({
-  runtimeSeconds,
+  executionSeconds,
   cpuCores,
   powerPerCore,
   cpuUtilization,
-  ramGb,
-  pue,
-  gridIntensity,
-  te,
-  el,
-  rr,
-  tor,
+  memoryGb,
+  plannerCost,
+  rowsExamined,
+  pue = DEFAULTS.PUE,
+  gridIntensity = DEFAULTS.GRID_INTENSITY,
+  te = DEFAULTS.TE,
+  el = DEFAULTS.EL,
+  rr = DEFAULTS.RR,
+  tor = DEFAULTS.ToR,
+  weights = WEIGHTS,
+  baselines = BASELINES,
 }) {
-  const runtimeHours = runtimeSeconds / 3600;
-
+  // Step 1: Calculate Energy (kWh)
   const energyKwh = calculateEnergy({
-    runtimeHours,
+    executionSeconds,
     cpuCores,
     powerPerCore,
     cpuUtilization,
-    ramGb,
+    memoryGb,
     pue,
   });
 
+  // Step 2: Calculate Operational Emissions (gCO2eq)
   const operationalEmissions = calculateOperationalEmissions(energyKwh, gridIntensity);
 
+  // Step 3: Calculate Embodied Emissions (gCO2eq)
   const embodiedEmissions = calculateEmbodiedEmissions({
+    executionSeconds,
     te,
-    tir: runtimeHours,
     el,
     rr,
     tor,
   });
 
-  const totalEmissions = operationalEmissions + embodiedEmissions;
+  // Step 4: Calculate Software Carbon Intensity (SCI)
   const sci = calculateSCI(operationalEmissions, embodiedEmissions);
-  const classification = classifyEmissions(totalEmissions);
-  const sustainabilityScore = calculateSustainabilityScore(totalEmissions);
+
+  // Step 5: Calculate Sustainability Score (0-100)
+  const sustainabilityScore = calculateSustainabilityScore({
+    sci,
+    plannerCost,
+    executionMs: executionSeconds * 1000,
+    rowsExamined,
+    weights,
+    baselines,
+  });
+
+  // Step 6: Classify into tier
+  const classification = classifyScore(sustainabilityScore);
 
   return {
-    runtime_s: runtimeSeconds,
-    runtime_hours: runtimeHours,
-    energy_kwh: energyKwh,
-    operational_emissions_gco2: operationalEmissions,
-    embodied_emissions_gco2: embodiedEmissions,
-    total_emissions_gco2: totalEmissions,
-    sci,
-    classification,
+    // Execution metrics
+    execution_seconds: executionSeconds,
+    
+    // Energy consumption
+    energy_kwh: Math.round(energyKwh * 1e6) / 1e6, // 6 decimal places
+    
+    // Emissions breakdown
+    operational_emissions_gco2eq: Math.round(operationalEmissions * 100) / 100,
+    embodied_emissions_gco2eq: Math.round(embodiedEmissions * 100) / 100,
+    total_emissions_gco2eq: Math.round((operationalEmissions + embodiedEmissions) * 100) / 100,
+    
+    // Carbon intensity
+    sci_gco2eq_per_query: Math.round(sci * 100) / 100,
+    
+    // Sustainability assessment
     sustainability_score: sustainabilityScore,
+    classification: classification.tier,
+    tier_label: classification.label,
+    tier_description: classification.description,
+    
+    // Grid and hardware parameters used
+    grid_intensity_used: gridIntensity,
+    pue_used: pue,
+    
+    // Normalized metrics for debugging/transparency
+    normalized_metrics: {
+      emissions: Math.round(normalizeEmissions(sci, baselines.SCI) * 100) / 100,
+      cost: Math.round(normalizeCost(plannerCost, baselines.cost) * 100) / 100,
+      duration: Math.round(normalizeDuration(executionSeconds * 1000, baselines.duration) * 100) / 100,
+      rows: Math.round(normalizeRows(rowsExamined, baselines.rows) * 100) / 100,
+    },
+    
+    // Configuration snapshot for reproducibility
+    configuration: {
+      weights: { ...weights },
+      baselines: { ...baselines },
+    },
   };
 }
 
-module.exports = { calculateAll, extractTables, classifyEmissions };
+module.exports = {
+  calculateAll,
+  calculateEnergy,
+  calculateOperationalEmissions,
+  calculateEmbodiedEmissions,
+  calculateSCI,
+  calculateSustainabilityScore,
+  classifyScore,
+  normalizeEmissions,
+  normalizeRows,
+  normalizeCost,
+  normalizeDuration,
+  extractTables,
+  clamp,
+  DEFAULTS,
+  WEIGHTS,
+  BASELINES,
+  CLASSIFICATION_TIERS,
+};

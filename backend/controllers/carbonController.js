@@ -9,7 +9,7 @@ const hardwareDetector = require('../services/hardwareDetector');
  */
 async function analyzeQuery(req, res) {
   try {
-    const { sql, database, complexityMultiplier = 1 } = req.body;
+    const { sql, database } = req.body;
 
     // Validate required SQL and database parameters
     if (!sql || typeof sql !== 'string' || !sql.trim()) {
@@ -19,32 +19,49 @@ async function analyzeQuery(req, res) {
       return res.status(400).json({ error: 'Missing or empty required field: database' });
     }
 
+    console.log(`[QueryCarbon] Analyzing query on database: "${database}"`);
+    console.log(`[QueryCarbon] Query preview: ${sql.substring(0, 80).replace(/\n/g, ' ')}...`);
+
     // Execute the query and measure actual runtime
     let queryResult;
     try {
+      const startTime = Date.now();
       queryResult = await db.executeQueryOnDatabase(database, sql);
+      const totalTime = Date.now() - startTime;
+      console.log(`[QueryCarbon] ✓ Query executed on "${database}" in ${totalTime}ms | Runtime: ${queryResult.runtimeMs.toFixed(2)}ms | Rows: ${queryResult.rowCount} | Cost: ${queryResult.plannerCost}`);
     } catch (dbErr) {
+      console.error(`[QueryCarbon] ✗ Query execution failed on "${database}":`, dbErr.message);
       return res.status(400).json({
         error: 'Query execution failed',
         detail: dbErr.message,
       });
     }
 
-    // Apply complexity multiplier to simulate larger datasets/operations
-    const actualRuntimeMs = queryResult.runtimeMs;
-    const simulatedRuntimeMs = actualRuntimeMs * parseFloat(complexityMultiplier || 1);
-    const runtimeSeconds = simulatedRuntimeMs / 1000;
+    // Use actual measured runtime
+    const runtimeSeconds = queryResult.runtimeMs / 1000;
 
     // Use auto-detected hardware config, merged with any user-provided overrides
     const hardwareConfig = hardwareDetector.mergeWithDefaults(req.body);
 
-    // Calculate carbon metrics
+    // Estimate planner cost from runtime if not extracted from EXPLAIN
+    // Conservative estimate: use runtime as rough proxy with modest scaling
+    let plannerCost = queryResult.plannerCost;
+    if (!plannerCost || plannerCost < 10) {
+      // Estimate: 100 base cost + (runtimeMs^1.2 * 10) for modest scaling
+      // This keeps most short queries in reasonable range (100-2000)
+      plannerCost = 100 + Math.pow(queryResult.runtimeMs, 1.2) * 10;
+      console.log(`[QueryCarbon] Estimated planner cost: ${plannerCost.toFixed(0)}`);
+    }
+
+    // Calculate carbon metrics using updated calculator
     const metrics = calculateAll({
-      runtimeSeconds,
+      executionSeconds: runtimeSeconds,
       cpuCores: hardwareConfig.cpuCores,
       powerPerCore: hardwareConfig.powerPerCore,
       cpuUtilization: hardwareConfig.cpuUtilization,
-      ramGb: hardwareConfig.ramGb,
+      memoryGb: hardwareConfig.ramGb,
+      plannerCost: plannerCost,
+      rowsExamined: queryResult.rowCount || 0,
       pue: hardwareConfig.pue,
       gridIntensity: hardwareConfig.gridIntensity,
       te: hardwareConfig.te,
@@ -55,16 +72,32 @@ async function analyzeQuery(req, res) {
 
     const tables = extractTables(sql);
 
+    // Map metrics for response and persistence
+    const responseMetrics = {
+      energy_kwh: metrics.energy_kwh,
+      operational_emissions_gco2: metrics.operational_emissions_gco2eq,
+      embodied_emissions_gco2: metrics.embodied_emissions_gco2eq,
+      total_emissions_gco2: metrics.total_emissions_gco2eq,
+      sci: metrics.sci_gco2eq_per_query,
+      sustainability_score: metrics.sustainability_score,
+      classification: metrics.classification,
+      tier_label: metrics.tier_label,
+      tier_description: metrics.tier_description,
+      normalized_metrics: metrics.normalized_metrics,
+      grid_intensity_used: metrics.grid_intensity_used,
+      pue_used: metrics.pue_used,
+    };
+
     // Save to history
     const saved = await db.saveToHistory({
       query_text: sql,
       database_name: database,
       runtime_s: runtimeSeconds,
       energy_kwh: metrics.energy_kwh,
-      operational_emissions_gco2: metrics.operational_emissions_gco2,
-      embodied_emissions_gco2: metrics.embodied_emissions_gco2,
-      total_emissions_gco2: metrics.total_emissions_gco2,
-      sci: metrics.sci,
+      operational_emissions_gco2: metrics.operational_emissions_gco2eq,
+      embodied_emissions_gco2: metrics.embodied_emissions_gco2eq,
+      total_emissions_gco2: metrics.total_emissions_gco2eq,
+      sci: metrics.sci_gco2eq_per_query,
       classification: metrics.classification,
       tables_involved: tables,
       hardware_config: hardwareConfig,
@@ -79,10 +112,9 @@ async function analyzeQuery(req, res) {
       row_count: queryResult.rowCount,
       fields: queryResult.fields,
       results_preview: queryResult.rows.slice(0, 10),
-      actual_runtime_ms: actualRuntimeMs,
-      simulated_runtime_s: runtimeSeconds,
-      complexity_multiplier: parseFloat(complexityMultiplier),
-      ...metrics,
+      actual_runtime_ms: queryResult.runtimeMs,
+      runtime_s: runtimeSeconds,
+      ...responseMetrics,
     });
   } catch (err) {
     console.error('analyzeQuery error:', err);

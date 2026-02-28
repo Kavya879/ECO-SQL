@@ -28,6 +28,7 @@ async function listDatabases() {
       WHERE datistemplate = false
       ORDER BY datname ASC
     `);
+    console.log(`[DB] Available databases: ${result.rows.map(r => r.name).join(', ')}`);
     return result.rows;
   } finally {
     client.release();
@@ -53,22 +54,43 @@ async function listTables(dbName) {
 }
 
 async function executeQueryOnDatabase(dbName, sql) {
+  console.log(`[DB] Creating pool for database: "${dbName}"`);
   const pool = getPoolForDatabase(dbName);
   const client = await pool.connect();
+  console.log(`[DB] Connected to database: "${dbName}"`);
   try {
+    // Get EXPLAIN plan to extract planner cost
+    let plannerCost = 0;
+    try {
+      const explainResult = await client.query(`EXPLAIN (FORMAT JSON) ${sql}`);
+      if (explainResult.rows && explainResult.rows[0]) {
+        const plan = explainResult.rows[0]['QUERY PLAN'];
+        if (Array.isArray(plan) && plan[0]) {
+          plannerCost = plan[0]['Total Cost'] || 0;
+        }
+      }
+      console.log(`[DB] Planner cost extracted: ${plannerCost}`);
+    } catch (explainErr) {
+      console.warn(`[DB] Could not extract planner cost (expected for non-SELECT queries):`, explainErr.message);
+    }
+
+    // Execute the actual query
     const start = process.hrtime.bigint();
     const result = await client.query(sql);
     const end = process.hrtime.bigint();
     const runtimeMs = Number(end - start) / 1_000_000;
+    console.log(`[DB] Query executed. Runtime: ${runtimeMs.toFixed(3)}ms, Rows returned: ${result.rowCount}, Planner cost: ${plannerCost}`);
     return {
       rows: result.rows,
       rowCount: result.rowCount,
       fields: result.fields ? result.fields.map(f => f.name) : [],
       runtimeMs,
+      plannerCost,
     };
   } finally {
     client.release();
     await pool.end();
+    console.log(`[DB] Connection closed for database: "${dbName}"`);
   }
 }
 
