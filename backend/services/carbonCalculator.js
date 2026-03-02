@@ -6,12 +6,12 @@
 // ===== CONSTANTS =====
 const DEFAULTS = {
   PUE: 1.3, // Power Usage Effectiveness
-  TE: 1600000, // Total Embodied Carbon (gCO2eq) - mid-range server
-  EL: 35040, // Expected hardware lifespan (hours) - 4 years
-  RR: 0.5, // Resource Reserved ratio
-  ToR: 1, // Total Resources
+  TE: 150000, // Total Embodied Carbon (gCO2eq) - typical desktop/workstation
+  EL: 48180, // Expected hardware lifespan (hours) - 5.5 years
+  RR: 0.05, // Resource Reserved ratio (~5% for single query)
+  ToR: 11000, // Total Operating time (hours) - 1 year at 8h/day, 250 days
   MEM_POWER: 0.3725, // W/GB
-  GRID_INTENSITY: 442, // gCO2eq/kWh - India default (2024)
+  GRID_INTENSITY: 475, // gCO2eq/kWh - global average (2024)
 };
 
 const WEIGHTS = {
@@ -45,7 +45,8 @@ function clamp(value, min, max) {
 
 /**
  * Energy Calculation
- * E = t × (n_c × P_c × u_c + n_mem × 0.3725) × PUE × 0.001
+ * E = t(hours) × (n_c × P_c × u_c + n_mem × P_mem) × PUE / 1000
+ * Formula: Energy (kWh) = Time (hours) × Power (W) × PUE / 1000
  *
  * @param {object} params
  * @param {number} params.executionSeconds - Execution time in seconds
@@ -64,38 +65,50 @@ function calculateEnergy({
   memoryGb,
   pue = DEFAULTS.PUE,
 }) {
+  // CPU power consumption
   const cpuPower = cpuCores * powerPerCore * cpuUtilization;
+  // Memory power consumption
   const memPower = memoryGb * DEFAULTS.MEM_POWER;
+  // Total instantaneous power draw
   const totalPower = cpuPower + memPower;
   
-  // Convert seconds to hours for calculation
+  // Convert seconds to hours and calculate energy consumption
   const executionHours = executionSeconds / 3600;
-  const energyKwh = executionHours * totalPower * pue * 0.001;
+  // Energy = hours * watts * PUE / 1000 to get kWh
+  const energyKwh = (executionHours * totalPower * pue) / 1000;
   
   return energyKwh;
 }
 
 /**
  * Operational Emissions
- * O = E × I
+ * O = E × I (Green Algorithms 2021, Eq. 5)
+ * Where E = Energy (kWh), I = Grid carbon intensity (gCO2eq/kWh)
  *
  * @param {number} energyKwh - Energy consumed (kWh)
  * @param {number} gridIntensity - Grid carbon intensity (gCO2eq/kWh)
  * @returns {number} Operational emissions (gCO2eq)
  */
 function calculateOperationalEmissions(energyKwh, gridIntensity = DEFAULTS.GRID_INTENSITY) {
+  // Direct multiplication: kWh * gCO2/kWh = gCO2eq
   return energyKwh * gridIntensity;
 }
 
 /**
- * Embodied Emissions
- * M = TE × (TiR / EL) × (RR / ToR)
+ * Embodied Emissions (Green Algorithms 2021, Eq. 7)
+ * M = TE × (T_I/E_L) × (R_R/ToR)
+ * Where:
+ *   TE = Total embodied carbon (gCO2eq)
+ *   T_I = Time in use (hours)
+ *   E_L = Expected lifespan (hours)
+ *   R_R = Reserved resources (fraction)
+ *   ToR = Total operating time (hours)
  *
  * @param {object} params
  * @param {number} params.executionSeconds - Query execution time (seconds)
  * @param {number} params.te - Total embodied carbon (gCO2eq)
  * @param {number} params.el - Expected hardware lifespan (hours)
- * @param {number} params.rr - Resource Reserved ratio
+ * @param {number} params.rr - Resource Reserved ratio (0-1)
  * @param {number} params.tor - Total operating time (hours)
  * @returns {number} Embodied emissions (gCO2eq)
  */
@@ -106,9 +119,10 @@ function calculateEmbodiedEmissions({
   rr = DEFAULTS.RR,
   tor = DEFAULTS.ToR,
 }) {
-  // Convert execution time from seconds to hours
-  const tir = executionSeconds / 3600;
-  const embodiedEmissions = te * (tir / el) * (rr / tor);
+  // Convert execution time from seconds to hours (T_I)
+  const timeInUseHours = executionSeconds / 3600;
+  // Embodied emissions = TE × (T_I / E_L) × (R_R / ToR)
+  const embodiedEmissions = te * (timeInUseHours / el) * (rr / tor);
   
   return embodiedEmissions;
 }
@@ -341,16 +355,16 @@ function calculateAll({
     // Execution metrics
     execution_seconds: executionSeconds,
     
-    // Energy consumption
-    energy_kwh: Math.round(energyKwh * 1e6) / 1e6, // 6 decimal places
+    // Energy consumption - keep high precision as values are tiny
+    energy_kwh: Math.max(0, Math.round(energyKwh * 1e9) / 1e9), // 9 decimal places for micro/nano queries
     
-    // Emissions breakdown
-    operational_emissions_gco2eq: Math.round(operationalEmissions * 100) / 100,
-    embodied_emissions_gco2eq: Math.round(embodiedEmissions * 100) / 100,
-    total_emissions_gco2eq: Math.round((operationalEmissions + embodiedEmissions) * 100) / 100,
+    // Emissions breakdown - use 6 decimal places for accuracy
+    operational_emissions_gco2eq: Math.max(0, Math.round(operationalEmissions * 1e6) / 1e6),
+    embodied_emissions_gco2eq: Math.max(0, Math.round(embodiedEmissions * 1e6) / 1e6),
+    total_emissions_gco2eq: Math.max(0, Math.round((operationalEmissions + embodiedEmissions) * 1e6) / 1e6),
     
     // Carbon intensity
-    sci_gco2eq_per_query: Math.round(sci * 100) / 100,
+    sci_gco2eq_per_query: Math.max(0, Math.round(sci * 1e6) / 1e6),
     
     // Sustainability assessment
     sustainability_score: sustainabilityScore,

@@ -13,5 +13,6 @@ export const getHardwareConfig = () => api.get('/hardware-config').then(r => r.d
 export const getHistory = (params) => api.get('/history', { params }).then(r => r.data);
 export const getDashboard = (params) => api.get('/dashboard', { params }).then(r => r.data);
 export const exportHistoryCsv = () => `${api.defaults.baseURL}/history/export`;
+export const clearHistory = () => api.delete('/history').then(r => r.data);
 
 export default api;

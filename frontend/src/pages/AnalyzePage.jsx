@@ -19,15 +19,15 @@ LIMIT 100;`;
 
 const DEFAULTS = {
   cpuCores: 16,
-  powerPerCore: 15,
-  cpuUtilization: 0.65,
-  ramGb: 64,
+  powerPerCore: 10,
+  cpuUtilization: 0.5,
+  ramGb: 32,
   pue: 1.3,
-  gridIntensity: 442,
-  te: 1600000,
-  el: 35040,
-  rr: 0.5,
-  tor: 8760,
+  gridIntensity: 475,
+  te: 100000,
+  el: 48180,
+  rr: 0.05,
+  tor: 11000,
 };
 
 function ResultMetric({ label, value, unit, color }) {
@@ -80,6 +80,13 @@ export default function AnalyzePage() {
   const textareaRef = useRef(null);
 
   useEffect(() => {
+    // Check for copied query from reports page
+    const copiedQuery = sessionStorage.getItem('queryToCopy');
+    if (copiedQuery) {
+      setSql(copiedQuery);
+      sessionStorage.removeItem('queryToCopy');
+    }
+    
     getDatabases().then(d => {
       setDatabases(d.databases || []);
       if (d.databases?.length > 0) setSelectedDb(d.databases[0].name);

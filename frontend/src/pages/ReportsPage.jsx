@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getHistory } from '../api/api.js';
+import { getHistory, clearHistory } from '../api/api.js';
 import { fmtGco2, fmtRuntime, fmtTimeAgo, classificationBadge } from '../utils/format.js';
 
 const DAYS = [7, 30, 90, 365];
@@ -11,6 +11,7 @@ export default function ReportsPage() {
   const [classification, setClassification] = useState('');
   const [days, setDays] = useState(30);
   const [page, setPage] = useState(0);
+  const [copiedId, setCopiedId] = useState(null);
   const limit = 12;
 
   const load = useCallback(async () => {
@@ -31,6 +32,29 @@ export default function ReportsPage() {
     window.location.href = `/api/history/export?days=${days}`;
   };
 
+  const copyQueryToEditor = (queryText, queryId) => {
+    // Store in sessionStorage for cross-page communication
+    sessionStorage.setItem('queryToCopy', queryText);
+    // Navigate to analyze page
+    window.location.href = '/analyze';
+    setCopiedId(queryId);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleClearHistory = async () => {
+    if (!window.confirm('Are you sure you want to clear all query history? This cannot be undone.')) {
+      return;
+    }
+    try {
+      await clearHistory();
+      setData({ rows: [], total: 0 });
+      setPage(0);
+      alert('History cleared successfully');
+    } catch (e) {
+      alert('Failed to clear history: ' + (e.response?.data?.error || e.message));
+    }
+  };
+
   const totalPages = Math.ceil(data.total / limit);
   const stats = {
     total: data.total,
@@ -48,6 +72,7 @@ export default function ReportsPage() {
         <div className="page-actions">
           <button className="btn btn-secondary btn-sm" onClick={load}>↺ Refresh</button>
           <button className="btn btn-primary btn-sm" onClick={exportCsv}>↓ Export CSV</button>
+          <button className="btn btn-secondary btn-sm" onClick={handleClearHistory} style={{ color: 'var(--red)' }}>🗑 Clear History</button>
         </div>
       </div>
 
@@ -112,15 +137,16 @@ export default function ReportsPage() {
                   <th>Tables</th>
                   <th>Classification</th>
                   <th>Timestamp</th>
+                  <th style={{ width: 60 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                  <tr><td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
                     <span className="spinner" style={{ display: 'inline-block' }} />
                   </td></tr>
                 ) : data.rows.length === 0 ? (
-                  <tr><td colSpan={9}>
+                  <tr><td colSpan={10}>
                     <div className="empty-state">
                       <div className="empty-state-icon">📋</div>
                       <div className="empty-state-text">No records found. Try adjusting filters.</div>
@@ -129,6 +155,7 @@ export default function ReportsPage() {
                 ) : data.rows.map(row => {
                   const cls = row.classification || 'SUSTAINABLE';
                   const valColor = cls === 'SUSTAINABLE' ? 'var(--green)' : cls === 'MODERATE' ? 'var(--amber)' : 'var(--red)';
+                  const isCopied = copiedId === row.id;
                   return (
                     <tr key={row.id}>
                       <td className="mono" style={{ color: 'var(--text-muted)' }}>#{row.id}</td>
@@ -142,6 +169,20 @@ export default function ReportsPage() {
                       </td>
                       <td><span className={`badge ${classificationBadge(cls)}`}>{cls}</span></td>
                       <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtTimeAgo(row.created_at)}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => copyQueryToEditor(row.query_text, row.id)}
+                          title="Copy query to editor"
+                          style={{
+                            fontSize: 11,
+                            padding: '4px 6px',
+                            color: isCopied ? 'var(--green)' : 'var(--text-secondary)',
+                          }}
+                        >
+                          {isCopied ? '✓' : '→'}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
