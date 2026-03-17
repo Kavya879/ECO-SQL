@@ -1,13 +1,20 @@
 export const fmtEnergy = (kwh) => {
-  if (kwh === null || kwh === undefined) return '—';
-  if (kwh < 0.001) return (kwh * 1000000).toFixed(3) + ' µWh';
+  if (kwh === null || kwh === undefined || kwh === 0) return '—';
+  if (kwh < 0.000001) return (kwh * 1e9).toFixed(3) + ' nWh';
+  if (kwh < 0.001) return (kwh * 1e6).toFixed(3) + ' µWh';
   if (kwh < 1) return (kwh * 1000).toFixed(4) + ' Wh';
   return kwh.toFixed(6) + ' kWh';
 };
 
 export const fmtGco2 = (g) => {
   if (g === null || g === undefined) return '—';
-  return parseFloat(g).toFixed(4);
+  if (g === 0) return '0';
+  // For tiny values, show in scientific notation or with more precision
+  const val = parseFloat(g);
+  if (val < 0.000001) return val.toExponential(3);
+  if (val < 0.01) return val.toFixed(6);
+  if (val < 100) return val.toFixed(4);
+  return val.toFixed(2);
 };
 
 export const fmtRuntime = (s) => {

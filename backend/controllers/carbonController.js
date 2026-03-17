@@ -70,6 +70,11 @@ async function analyzeQuery(req, res) {
       tor: hardwareConfig.tor,
     });
 
+    // Log detailed metrics for debugging
+    console.log(`[QueryCarbon] Energy: ${metrics.energy_kwh} kWh | Op Emissions: ${metrics.operational_emissions_gco2eq} gCO2 | Embodied: ${metrics.embodied_emissions_gco2eq} gCO2 | Total: ${metrics.total_emissions_gco2eq} gCO2 | Score: ${metrics.sustainability_score}`);
+    console.log(`[QueryCarbon] Hardware: cores=${hardwareConfig.cpuCores}, power/core=${hardwareConfig.powerPerCore}W, util=${(hardwareConfig.cpuUtilization*100).toFixed(1)}%, ram=${hardwareConfig.ramGb}GB, PUE=${hardwareConfig.pue}`);
+    console.log(`[QueryCarbon] Grid Intensity: ${hardwareConfig.gridIntensity} gCO2/kWh | TE: ${hardwareConfig.te} gCO2eq | EL: ${hardwareConfig.el}h | RR: ${hardwareConfig.rr} | ToR: ${hardwareConfig.tor}h`);
+
     const tables = extractTables(sql);
 
     // Map metrics for response and persistence
@@ -214,4 +219,18 @@ async function exportHistory(req, res) {
   }
 }
 
-module.exports = { analyzeQuery, getDatabases, getTables, getHistory, getDashboard, getHardwareConfig, exportHistory };
+/**
+ * DELETE /api/history
+ * Clear all query history (optional days param to clear older entries)
+ */
+async function clearHistory(req, res) {
+  try {
+    const { days } = req.query;
+    const result = await db.clearHistory(days);
+    res.json({ message: `Cleared ${result.count} records from history`, count: result.count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { analyzeQuery, getDatabases, getTables, getHistory, getDashboard, getHardwareConfig, exportHistory, clearHistory };

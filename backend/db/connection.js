@@ -201,4 +201,20 @@ async function getDashboardStats(days = 30) {
   }
 }
 
-module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getDashboardStats };
+async function clearHistory(days) {
+  const client = await defaultPool.connect();
+  try {
+    let query = 'DELETE FROM querycarbon_history';
+    if (days && parseInt(days) > 0) {
+      const d = parseInt(days);
+      query += ` WHERE created_at < NOW() - INTERVAL '${d} days'`;
+    }
+    const result = await client.query(query);
+    console.log(`[DB] Cleared ${result.rowCount} records from history`);
+    return { count: result.rowCount };
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getDashboardStats, clearHistory };
