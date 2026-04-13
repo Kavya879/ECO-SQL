@@ -53,20 +53,92 @@ async function listTables(dbName) {
   }
 }
 
+async function getTableMetadata(dbName, tableNames = []) {
+  const normalizedTables = Array.from(new Set(
+    (tableNames || [])
+      .map(name => String(name || '').trim())
+      .filter(Boolean)
+  ));
+
+  if (normalizedTables.length === 0) {
+    return {};
+  }
+
+  const pool = getPoolForDatabase(dbName);
+  const client = await pool.connect();
+  try {
+    const metadata = {};
+
+    for (const tableRef of normalizedTables) {
+      const [schemaName, tableName] = tableRef.includes('.')
+        ? tableRef.split('.', 2)
+        : ['public', tableRef];
+
+      const columnsRes = await client.query(
+        `SELECT column_name, data_type, udt_name, is_nullable, ordinal_position
+         FROM information_schema.columns
+         WHERE table_schema = $1 AND table_name = $2
+         ORDER BY ordinal_position ASC`,
+        [schemaName, tableName]
+      );
+
+      const indexesRes = await client.query(
+        `SELECT indexname, indexdef
+         FROM pg_indexes
+         WHERE schemaname = $1 AND tablename = $2
+         ORDER BY indexname ASC`,
+        [schemaName, tableName]
+      );
+
+      const statsRes = await client.query(
+        `SELECT c.reltuples::bigint AS estimated_rows
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = $1 AND c.relname = $2`,
+        [schemaName, tableName]
+      );
+
+      metadata[`${schemaName}.${tableName}`] = {
+        schema: schemaName,
+        name: tableName,
+        columns: columnsRes.rows.map(row => ({
+          name: row.column_name,
+          data_type: row.data_type,
+          udt_name: row.udt_name,
+          is_nullable: row.is_nullable === 'YES',
+          ordinal_position: row.ordinal_position,
+        })),
+        indexes: indexesRes.rows.map(row => ({
+          name: row.indexname,
+          definition: row.indexdef,
+        })),
+        estimated_rows: statsRes.rows[0]?.estimated_rows ? Number(statsRes.rows[0].estimated_rows) : null,
+      };
+    }
+
+    return metadata;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
 async function executeQueryOnDatabase(dbName, sql) {
   console.log(`[DB] Creating pool for database: "${dbName}"`);
   const pool = getPoolForDatabase(dbName);
   const client = await pool.connect();
   console.log(`[DB] Connected to database: "${dbName}"`);
   try {
-    // Get EXPLAIN plan to extract planner cost
+    // Get EXPLAIN plan to extract planner cost and plan node
     let plannerCost = 0;
+    let planNode = null;
     try {
       const explainResult = await client.query(`EXPLAIN (FORMAT JSON) ${sql}`);
       if (explainResult.rows && explainResult.rows[0]) {
         const plan = explainResult.rows[0]['QUERY PLAN'];
         if (Array.isArray(plan) && plan[0]) {
           plannerCost = plan[0]['Total Cost'] || 0;
+          planNode = plan[0]; // Store full plan node for index analysis
         }
       }
       console.log(`[DB] Planner cost extracted: ${plannerCost}`);
@@ -86,6 +158,7 @@ async function executeQueryOnDatabase(dbName, sql) {
       fields: result.fields ? result.fields.map(f => f.name) : [],
       runtimeMs,
       plannerCost,
+      planNode, // Return the full plan node for index analysis
     };
   } finally {
     client.release();
@@ -217,4 +290,4 @@ async function clearHistory(days) {
   }
 }
 
-module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getDashboardStats, clearHistory };
+module.exports = { defaultPool, listDatabases, listTables, getTableMetadata, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getDashboardStats, clearHistory };

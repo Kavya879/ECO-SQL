@@ -1,6 +1,8 @@
 const db = require('../db/connection');
 const { calculateAll, extractTables } = require('../services/carbonCalculator');
 const hardwareDetector = require('../services/hardwareDetector');
+const { rewriteQuery } = require('../services/queryRewriter');
+const { analyzeQueryOptimization } = require('../services/sqlOptimizationEngine');
 
 /**
  * POST /api/analyze
@@ -39,6 +41,15 @@ async function analyzeQuery(req, res) {
 
     // Use actual measured runtime
     const runtimeSeconds = queryResult.runtimeMs / 1000;
+    const tables = extractTables(sql);
+
+    // Log plan node for debugging
+    if (queryResult.planNode) {
+      console.log(`[QueryCarbon] Plan node keys: ${Object.keys(queryResult.planNode).join(', ')}`);
+      console.log(`[QueryCarbon] NodeType: ${queryResult.planNode.NodeType}, Plan Rows: ${queryResult.planNode['Plan Rows']}`);
+    } else {
+      console.log('[QueryCarbon] No plan node returned from database');
+    }
 
     // Use auto-detected hardware config, merged with any user-provided overrides
     const hardwareConfig = hardwareDetector.mergeWithDefaults(req.body);
@@ -68,14 +79,61 @@ async function analyzeQuery(req, res) {
       el: hardwareConfig.el,
       rr: hardwareConfig.rr,
       tor: hardwareConfig.tor,
+      sql: sql,
+      planNode: queryResult.planNode,
     });
 
     // Log detailed metrics for debugging
     console.log(`[QueryCarbon] Energy: ${metrics.energy_kwh} kWh | Op Emissions: ${metrics.operational_emissions_gco2eq} gCO2 | Embodied: ${metrics.embodied_emissions_gco2eq} gCO2 | Total: ${metrics.total_emissions_gco2eq} gCO2 | Score: ${metrics.sustainability_score}`);
     console.log(`[QueryCarbon] Hardware: cores=${hardwareConfig.cpuCores}, power/core=${hardwareConfig.powerPerCore}W, util=${(hardwareConfig.cpuUtilization*100).toFixed(1)}%, ram=${hardwareConfig.ramGb}GB, PUE=${hardwareConfig.pue}`);
     console.log(`[QueryCarbon] Grid Intensity: ${hardwareConfig.gridIntensity} gCO2/kWh | TE: ${hardwareConfig.te} gCO2eq | EL: ${hardwareConfig.el}h | RR: ${hardwareConfig.rr} | ToR: ${hardwareConfig.tor}h`);
+    console.log(`[QueryCarbon] Severity: ${metrics.severity} | Flags: ${Object.keys(metrics.severity_flags).filter(k => metrics.severity_flags[k].length > 0).map(k => `${k}[${metrics.severity_flags[k].join(',')}]`).join(' | ')}`);
+    if (metrics.improvements.patterns_detected.length > 0) {
+      console.log(`[QueryCarbon] Improvements: ${metrics.improvements.patterns_detected.map(p => `${p.pattern}(${p.runtime_reduction_pct}%)`).join(', ')} | Combined reduction: ${metrics.improvements.combined_runtime_reduction_pct}% runtime, ${metrics.improvements.combined_carbon_reduction_pct}% carbon`);
+      console.log(`[QueryCarbon] Recommendations: ${metrics.improvements.recommendations.join(' | ')}`);
+    }
+    if (metrics.index_violations.length > 0) {
+      console.log(`[QueryCarbon] Index Violations: ${metrics.index_rule_count} rule(s) triggered | HIGH: ${metrics.index_high_severity}, MEDIUM: ${metrics.index_medium_severity} | Combined runtime reduction potential: ${metrics.index_combined_runtime_reduction_pct}% | Carbon reduction potential: ${metrics.index_combined_carbon_reduction_pct}%`);
+      metrics.index_violations.forEach(v => {
+        console.log(`  [${v.rule_id}] ${v.rule_name} (${v.severity}/${v.confidence}) - ${v.carbon_reason}`);
+      });
+    }
 
-    const tables = extractTables(sql);
+    let tableMetadata = {};
+    try {
+      tableMetadata = await db.getTableMetadata(database, tables);
+    } catch (metaErr) {
+      console.warn(`[QueryCarbon] Table metadata lookup failed for "${database}":`, metaErr.message);
+    }
+
+    // Apply SQL query rewrites based on fired rules and EXPLAIN plan
+    const rewriteContext = {
+      rows_returned: queryResult.rowCount || 0,
+      plan_rows: queryResult.planNode?.['Plan Rows'] || 0,
+      has_disk_spill: false, // Would detect from EXPLAIN Sort node
+      grid_intensity: hardwareConfig.gridIntensity,
+      sci_score: metrics.sci_gco2eq_per_query,
+      runtime_ms: queryResult.runtimeMs,
+    };
+    const rewriteResult = rewriteQuery(sql, metrics.index_violations, queryResult.planNode, rewriteContext);
+
+    const optimizationReport = analyzeQueryOptimization({
+      sql,
+      planNode: queryResult.planNode,
+      tables,
+      tableMetadata,
+      runtimeMs: queryResult.runtimeMs,
+      sciGco2: metrics.sci_gco2eq_per_query,
+      rewriteResult,
+      plannerCost,
+    });
+
+    console.log(`[QueryCarbon] Query Rewrites: ${rewriteResult.total_rewrites} applied | Was rewritten: ${rewriteResult.was_rewritten}`);
+    if (rewriteResult.rewrites_applied.length > 0) {
+      rewriteResult.rewrites_applied.forEach(r => {
+        console.log(`  [${r.rule_id}] ${r.rewrite_name} - ${r.description}`);
+      });
+    }
 
     // Map metrics for response and persistence
     const responseMetrics = {
@@ -88,9 +146,30 @@ async function analyzeQuery(req, res) {
       classification: metrics.classification,
       tier_label: metrics.tier_label,
       tier_description: metrics.tier_description,
+      severity: metrics.severity,
+      severity_label: metrics.severity_label,
+      severity_description: metrics.severity_description,
+      severity_flags: metrics.severity_flags,
+      improvements: metrics.improvements,
+      index_violations: metrics.index_violations,
+      index_rule_count: metrics.index_rule_count,
+      index_high_severity: metrics.index_high_severity,
+      index_medium_severity: metrics.index_medium_severity,
+      index_combined_runtime_reduction_pct: metrics.index_combined_runtime_reduction_pct,
+      index_combined_carbon_reduction_pct: metrics.index_combined_carbon_reduction_pct,
       normalized_metrics: metrics.normalized_metrics,
       grid_intensity_used: metrics.grid_intensity_used,
       pue_used: metrics.pue_used,
+      query_optimizations: {
+        original_sql: rewriteResult.original_sql,
+        optimized_sql: rewriteResult.optimized_sql,
+        was_rewritten: rewriteResult.was_rewritten,
+        total_rewrites: rewriteResult.total_rewrites,
+        rewrites_applied: rewriteResult.rewrites_applied,
+        optimization_notes: rewriteResult.optimization_notes,
+      },
+      optimization_report: optimizationReport,
+      optimization_report_text: optimizationReport.report_text,
     };
 
     // Save to history
