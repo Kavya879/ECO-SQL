@@ -392,25 +392,6 @@ export default function AnalyzePage() {
               <ResultMetric label="Operational Emissions" value={fmtGco2(result.operational_emissions_gco2)} unit="gCO₂" />
               <ResultMetric label="Embodied Emissions" value={fmtGco2(result.embodied_emissions_gco2)} unit="gCO₂" />
 
-              {result.optimization?.optimizedQuery ? (
-                <div className="card" style={{ padding: '14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>Generated Optimized Query</div>
-                    <span className="tag">Safe rewrite</span>
-                  </div>
-                  <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.6, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '10px 12px', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
-                    {result.optimization.optimizedQuery}
-                  </pre>
-                </div>
-              ) : result.optimization ? (
-                <div className="card" style={{ padding: '14px' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 6 }}>Generated Optimized Query</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                    No semantics-preserving rewrite was generated for this query. The suggestions below focus on indexes and plan improvements that keep results unchanged.
-                  </div>
-                </div>
-              ) : null}
-
               {result.optimization && (
                 <div className="card" style={{ padding: '14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>

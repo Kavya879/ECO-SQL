@@ -208,15 +208,12 @@ function analyzeQuery(query, explainJson = null) {
         }
       ],
       indexRecommendations: [],
-      optimizedQuery: null,
       summary: {
         performanceImpact: 'No runtime optimization can be assessed without an input query.',
         carbonImpact: 'No carbon-impact estimate can be produced without query workload characteristics.'
       }
     };
   }
-
-  let optimizedQuery = rewriteCorrelatedAggregateSubquery(sql);
 
   // 1. SELECT *
   if (/\bselect\s+\*/i.test(sql)) {
@@ -227,7 +224,6 @@ function analyzeQuery(query, explainJson = null) {
       'Select only required columns to reduce scanned and returned data.'
     );
   }
-
   // 2. Missing WHERE clause
   if (/\bselect\b/i.test(sql) && !/\bwhere\b/i.test(sql)) {
     pushIssue(
@@ -399,7 +395,6 @@ function analyzeQuery(query, explainJson = null) {
   return {
     issues,
     indexRecommendations: dedupedIndexes,
-    optimizedQuery,
     summary: {
       performanceImpact: `Addressing ${issueCount} detected issue(s) can reduce full scans, sort work, and row processing time.`,
       carbonImpact: 'Reducing scanned rows and returned columns lowers CPU cycles, energy consumption, and associated carbon emissions.'
