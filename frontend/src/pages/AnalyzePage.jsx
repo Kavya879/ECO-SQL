@@ -156,6 +156,9 @@ export default function AnalyzePage() {
     return { lines, tables, hasJoin, type };
   })();
 
+  const hasResultSet = Array.isArray(result?.fields) && result.fields.length > 0;
+  const previewRows = result?.results_preview || [];
+
   return (
     <>
       <div className="page-header">
@@ -389,6 +392,66 @@ export default function AnalyzePage() {
               <ResultMetric label="Operational Emissions" value={fmtGco2(result.operational_emissions_gco2)} unit="gCO₂" />
               <ResultMetric label="Embodied Emissions" value={fmtGco2(result.embodied_emissions_gco2)} unit="gCO₂" />
 
+              {result.optimization?.optimizedQuery ? (
+                <div className="card" style={{ padding: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>Generated Optimized Query</div>
+                    <span className="tag">Safe rewrite</span>
+                  </div>
+                  <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.6, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '10px 12px', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
+                    {result.optimization.optimizedQuery}
+                  </pre>
+                </div>
+              ) : result.optimization ? (
+                <div className="card" style={{ padding: '14px' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, marginBottom: 6 }}>Generated Optimized Query</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    No semantics-preserving rewrite was generated for this query. The suggestions below focus on indexes and plan improvements that keep results unchanged.
+                  </div>
+                </div>
+              ) : null}
+
+              {result.optimization && (
+                <div className="card" style={{ padding: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>Optimization Suggestions</div>
+                    <span className="tag">{result.optimization.issues?.length || 0} issues</span>
+                  </div>
+
+                  {result.optimization.issues?.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                      {result.optimization.issues.map((it, idx) => (
+                        <div key={`${it.issue}-${idx}`} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', background: 'var(--bg-secondary)' }}>
+                          <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 4, fontWeight: 600 }}>{it.issue}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{it.reason}</div>
+                          <div style={{ fontSize: 11, color: 'var(--green)' }}>Fix: {it.suggestion}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {result.optimization.indexRecommendations?.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Index recommendations</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {result.optimization.indexRecommendations.map((stmt, idx) => (
+                          <pre key={`${stmt}-${idx}`} style={{ margin: 0, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--blue)', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '8px 10px', overflowX: 'auto' }}>{stmt}</pre>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Performance:</span> {result.optimization.summary?.performanceImpact}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Carbon:</span> {result.optimization.summary?.carbonImpact}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="sci-box">
                 <div className="sci-label">Total SCI Score · Software Carbon Intensity</div>
                 <div className="sci-value" style={{ color: clsColor }}>{fmtGco2(result.sci)}</div>
@@ -396,11 +459,11 @@ export default function AnalyzePage() {
               </div>
 
               {/* Results preview */}
-              {result.results_preview?.length > 0 && (
+              {hasResultSet && (
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
                     Query Results: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{result.row_count} row{result.row_count !== 1 ? 's' : ''}</span> 
-                    (showing first {Math.min(result.results_preview.length, 10)})
+                    (showing first {Math.min(previewRows.length, 10)})
                   </div>
                   <div className="results-preview">
                     <table>
@@ -408,13 +471,28 @@ export default function AnalyzePage() {
                         <tr>{result.fields.map(f => <th key={f}>{f}</th>)}</tr>
                       </thead>
                       <tbody>
-                        {result.results_preview.map((row, i) => (
+                        {previewRows.length > 0 ? previewRows.map((row, i) => (
                           <tr key={i}>
                             {result.fields.map(f => <td key={f}>{String(row[f] ?? '')}</td>)}
                           </tr>
-                        ))}
+                        )) : (
+                          <tr>
+                            <td colSpan={result.fields.length} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>
+                              Query executed successfully, but returned 0 rows.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {!hasResultSet && (
+                <div className="result-metric">
+                  <div className="result-metric-label">Execution Output</div>
+                  <div className="result-metric-value" style={{ fontSize: 12 }}>
+                    Query executed successfully. Affected rows: {result.row_count ?? 0}
                   </div>
                 </div>
               )}

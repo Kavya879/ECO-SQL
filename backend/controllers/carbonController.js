@@ -1,6 +1,7 @@
 const db = require('../db/connection');
 const { calculateAll, extractTables } = require('../services/carbonCalculator');
 const hardwareDetector = require('../services/hardwareDetector');
+const { analyzeQuery: analyzeOptimization } = require('../services/queryOptimizer');
 
 /**
  * POST /api/analyze
@@ -76,6 +77,7 @@ async function analyzeQuery(req, res) {
     console.log(`[QueryCarbon] Grid Intensity: ${hardwareConfig.gridIntensity} gCO2/kWh | TE: ${hardwareConfig.te} gCO2eq | EL: ${hardwareConfig.el}h | RR: ${hardwareConfig.rr} | ToR: ${hardwareConfig.tor}h`);
 
     const tables = extractTables(sql);
+    const optimization = analyzeOptimization(sql, null);
 
     // Map metrics for response and persistence
     const responseMetrics = {
@@ -119,6 +121,7 @@ async function analyzeQuery(req, res) {
       results_preview: queryResult.rows.slice(0, 10),
       actual_runtime_ms: queryResult.runtimeMs,
       runtime_s: runtimeSeconds,
+      optimization,
       ...responseMetrics,
     });
   } catch (err) {
