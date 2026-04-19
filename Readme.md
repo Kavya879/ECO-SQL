@@ -1,1494 +1,751 @@
-# QueryCarbon - SQL Query Carbon Footprint Analyzer
+# QueryCarbon — SQL Query Carbon Footprint Analyzer
 
-**Production-Ready Version 1.0.0** | Last Updated: February 28, 2026
-
----
-
-## 📋 Table of Contents
-
-1. [Overview](#-overview)
-2. [Scientific Foundation](#-scientific-foundation)
-3. [Formulas & Calculations](#-formulas--calculations)
-4. [Architecture](#-architecture)
-5. [Installation & Deployment](#-installation--deployment)
-6. [API Documentation](#-api-documentation)
-7. [Configuration Guide](#-configuration-guide)
-8. [Usage Examples](#-usage-examples)
-9. [Troubleshooting](#-troubleshooting)
-10. [Contributing](#-contributing)
-11. [References](#-references)
+**Phase 3 · v1.0.0** | Last Updated: April 2026
 
 ---
 
-## 🎯 Overview
+## Table of Contents
 
-**QueryCarbon** is a production-ready SQL query carbon footprint analyzer that measures environmental impact using scientific methodologies. It calculates:
+1. [Overview](#overview)
+2. [Scientific Foundation](#scientific-foundation)
+3. [Formulas & Calculations](#formulas--calculations)
+4. [Architecture](#architecture)
+5. [Query Optimizer — How It Works](#query-optimizer--how-it-works)
+   - [Track 1 — EXPLAIN Pattern Analysis (P1–P10)](#track-1--explain-pattern-analysis-p1p10)
+   - [Track 2 — HypoPG Index Simulation](#track-2--hypopg-index-simulation)
+   - [Track 3 — SQL Pattern Rules (R1–R12)](#track-3--sql-pattern-rules-r1r12)
+   - [Ranking & Merging](#ranking--merging)
+6. [Installation & Setup](#installation--setup)
+7. [API Documentation](#api-documentation)
+8. [Pagila Test Queries](#pagila-test-queries)
+9. [Troubleshooting](#troubleshooting)
+10. [References](#references)
 
-- **Energy consumption** in kilowatt-hours (kWh)
-- **Operational emissions** from grid electricity (gCO2eq)
-- **Embodied emissions** from hardware lifecycle (gCO2eq)
-- **Sustainability scores** (0-100) with 5-tier classification
+---
 
-### Key Features
+## Overview
 
-✅ **Scientific Accuracy**: Implements Green Algorithms 2021 + ISO/IEC 21031:2024  
-✅ **Real Data**: Extracts PostgreSQL query plans via EXPLAIN  
-✅ **Reproducibility**: Snapshots weights, baselines, hardware config per analysis  
-✅ **Configurable**: Per-region grid intensity, custom hardware parameters  
-✅ **Production Ready**: Error handling, logging, database persistence  
-✅ **Enterprise Scale**: History tracking, CSV export, dashboard analytics  
+**QueryCarbon** is a full-stack SQL carbon footprint analyzer that measures the environmental impact of PostgreSQL queries and automatically surfaces optimization suggestions. It combines live query execution, EXPLAIN plan analysis, hypothetical index simulation, and SQL pattern matching into a unified inline UI.
+
+### What It Does
+
+| Capability | Details |
+|-----------|---------|
+| **Carbon measurement** | Energy (kWh), Operational emissions (gCO2eq), Embodied emissions (gCO2eq), SCI score |
+| **Sustainability scoring** | 0–100 composite score across 5 tiers (EXCELLENT → CRITICAL) |
+| **EXPLAIN analysis** | Walks the live EXPLAIN JSON tree to detect 10 performance anti-patterns (P1–P10) |
+| **Index simulation** | Uses `hypopg` to try hypothetical indexes on your real DB and measure actual cost reduction |
+| **SQL pattern matching** | Applies 12 regex-based rules (R1–R12) to the raw SQL to catch structural anti-patterns |
+| **Inline rewrites** | Applies the optimizer's suggestions directly in the editor — real SQL transforms, not just comments |
+| **History & reports** | Full query history with filtering, CSV export, and one-click re-analysis |
 
 ### Tech Stack
 
 | Component | Technology |
 |-----------|------------|
 | **Backend** | Node.js 18+ / Express.js 4.x |
-| **Frontend** | React 18+ / Vite 4.x |
+| **Frontend** | React 18+ / Vite 5.x |
 | **Database** | PostgreSQL 12+ |
-| **Language** | JavaScript (ES2020+) |
 | **Port** | Backend: 3001, Frontend: 5173 |
 
 ---
 
-## 🔬 Scientific Foundation
+## Scientific Foundation
 
-### Standards Implemented
+### Green Algorithms 2021 (Lannelongue et al.)
 
-#### **Green Algorithms 2021** (Lannelongue et al.)
->*"Quantifying the carbon emissions of machine learning"*  
->Published in *Journal of Machine Learning Research* (2021)
->
-- Provides methodology for measuring software carbon intensity (SCI)
-- Defines energy consumption model accounting for CPU, memory, power efficiency
-- Introduces PUE (Power Usage Effectiveness) factor for data center cooling
+> *"Quantifying the carbon emissions of machine learning"*
+> Journal of Machine Learning Research (2021) — arXiv:2007.10883
+
+- Methodology for measuring Software Carbon Intensity (SCI)
+- Energy consumption model: CPU, memory, PUE
 - Reference: https://arxiv.org/abs/2007.10883
 
-#### **ISO/IEC 21031:2024**
->*"Environmental Information - Quantification and Communication of the Embodied Carbon of Products"*
->
-- Establishes embodied carbon calculation for hardware lifecycle
-- Defines 4-year server lifespan as industry standard (35,040 hours)
-- Provides default values for mid-range server hardware (Dell R740: 1,600,000 gCO2eq)
-- Enables comparable assessments across organizations
+### ISO/IEC 21031:2024
+
+> *"Environmental Information — Quantification and Communication of Embodied Carbon of Products"*
+
+- Embodied carbon calculation for hardware lifecycle
+- 4-year server lifespan standard (35,040 hours)
+- Default: Dell R740 mid-range server (1,600,000 gCO2eq)
 
 ---
 
-## 📐 Formulas & Calculations
+## Formulas & Calculations
 
 ### 1. Energy Consumption (kWh)
 
-**Formula:**
 ```
 E = t × (n_c × P_c × u_c + n_mem × 0.3725) × PUE × 0.001
 ```
 
-**Components:**
+| Symbol | Name | Unit | Notes |
+|--------|------|------|-------|
+| `t` | Execution time | seconds | Measured runtime |
+| `n_c` | CPU cores | count | Physical cores |
+| `P_c` | Power per core | watts | TDP / cores |
+| `u_c` | CPU utilization | fraction | 0–1 |
+| `n_mem` | Memory | gigabytes | Allocated RAM |
+| `PUE` | Power Usage Effectiveness | factor | Data center cooling |
 
-| Symbol | Name | Unit | Typical Range | Notes |
-|--------|------|------|---------------|-------|
-| `E` | Energy consumption | kWh | 0.000001–0.1 | Output |
-| `t` | Execution time | seconds | 0.001–3600 | Measured runtime |
-| `n_c` | CPU cores | count | 1–256 | Physical cores |
-| `P_c` | Power per core | watts | 5–20 | TDP spec / cores |
-| `u_c` | CPU utilization | fraction | 0–1 | Query intensity |
-| `n_mem` | Memory (RAM) | gigabytes | 1–512 | Allocated GB |
-| `PUE` | Power Usage Effectiveness | factor | 1.0–2.5 | Data center cooling loss |
-
-**Constants:**
-- Memory power consumption: **0.3725 W/GB** (ISO/IEC baseline)
-- Conversion factor: **0.001** (kW to W conversion)
-
-**Example Calculation:**
-```
-Query: SELECT * FROM customers (10-second execution)
-- Runtime: 10 seconds
-- CPU: 8 cores × 12W × 0.7 utilization = 67.2W
-- Memory: 32GB × 0.3725 = 11.92W
-- Total power: 79.12W
-- PUE: 1.3 (typical for modern data center)
-
-E = 10 × 79.12 × 1.3 × 0.001 = 1.03 kWh
-```
-
-**Source:** Green Algorithms 2021, Section 3.1
+Memory constant: **0.3725 W/GB** (ISO/IEC baseline)
 
 ---
 
 ### 2. Operational Emissions (gCO2eq)
 
-**Formula:**
 ```
 O = E × I
 ```
 
-**Components:**
-
-| Symbol | Name | Unit | Regional Values | Notes |
-|--------|------|------|-----------------|-------|
-| `O` | Operational emissions | gCO2eq | 0–1000+ | Output |
-| `E` | Energy consumption | kWh | — | From formula above |
-| `I` | Grid carbon intensity | gCO2eq/kWh | Regional | See table below |
-
-**Regional Grid Intensities (2024):**
-
-| Region | Value | Source | Notes |
-|--------|-------|--------|-------|
-| **India** | 442 gCO2eq/kWh | IEA 2023 | Coal-heavy grid |
-| **US Average** | 386 gCO2eq/kWh | EPA eGRID 2023 | Mix of renewables |
-| **EU Average** | 233 gCO2eq/kWh | Ember 2023 | Strong renewable % |
-| **Germany** | 187 gCO2eq/kWh | SMARD 2023 | High wind/solar |
-| **France** | 45 gCO2eq/kWh | RTE 2023 | Nuclear dominant |
-| **Norway** | 12 gCO2eq/kWh | Statistics Norway | Hydro 98% |
-
-**Example:**
-```
-European Query (1 kWh):
-O = 1.0 × 233 = 233 gCO2eq
-```
-
-**Source:** 
-- IEA World Energy Outlook 2023
-- EPA eGRID database: https://www.epa.gov/egrid
-- Ember Global Electricity Review: https://ember-climate.org
+| Region | Intensity | Source |
+|--------|-----------|--------|
+| India | 442 gCO2eq/kWh | IEA 2023 |
+| US Average | 386 gCO2eq/kWh | EPA eGRID 2023 |
+| EU Average | 233 gCO2eq/kWh | Ember 2023 |
+| France | 45 gCO2eq/kWh | RTE 2023 |
+| Norway | 12 gCO2eq/kWh | Statistics Norway |
 
 ---
 
 ### 3. Embodied Emissions (gCO2eq)
 
-**Formula:**
 ```
 M = TE × (TiR / EL) × (RR / ToR)
 ```
 
-**Components:**
-
-| Symbol | Name | Unit | Typical Value | Notes |
-|--------|------|------|---------------|-------|
-| `M` | Embodied emissions | gCO2eq | 0–1000 | Output |
-| `TE` | Total embodied carbon | gCO2eq | 1,600,000 | Hardware lifecycle |
-| `TiR` | Time in reporting period | hours | 0.0001–8760 | Query execution time (hours) |
-| `EL` | Expected hardware lifespan | hours | 35,040 | 4 years at 24/7/365 |
-| `RR` | Resource reserved ratio | factor | 0.5–1.0 | Allocation method |
-| `ToR` | Total operating time | hours | 1–8760 | Reporting period |
-
-**Parameter Details:**
-
-**TE (Total Embodied Carbon):**
-- Default: **1,600,000 gCO2eq**
-- Based on Dell PowerEdge R740 (mid-range 2-socket server)
-- Includes manufacturing, transportation, end-of-life
-- Source: Boavizta Hardware Database v1.2.0
-
-**EL (Expected Lifespan):**
-- Default: **35,040 hours**
-- Calculation: 4 years × 365 days × 24 hours
-- ISO/IEC 21031 standard for servers
-- Range: 3–5 years typical
-
-**RR (Resource Reserved Ratio):**
-- **0.5**: Shared server (50% allocation)
-- **1.0**: Dedicated hardware (100% responsible)
-- Reflects multi-tenant vs. single-tenant deployment
-
-**ToR (Total Operating Time):**
-- Default: **1** (represents full reporting period unit)
-- Can be 8760 for annual calculations
-- Maintains consistency with EL units
-
-**Example Calculation:**
-```
-Dedicated 4-year server, 1-second query:
-- Time in hours: 1 second / 3600 = 0.000278 hours
-- TE: 1,600,000 gCO2eq
-- EL: 35,040 hours
-- RR: 1.0 (dedicated)
-- ToR: 1 (normalized)
-
-M = 1,600,000 × (0.000278 / 35,040) × (1.0 / 1)
-  = 1,600,000 × 7.93e-9
-  = 0.0127 gCO2eq
-```
-
-**Source:**
-- ISO/IEC 21031:2024, Section 4.2
-- Boavizta Hardware Impact Database: https://github.com/Boavizta/boavizta-data-model
+| Symbol | Name | Default |
+|--------|------|---------|
+| `TE` | Total embodied carbon | 1,600,000 gCO2eq |
+| `EL` | Expected lifespan | 35,040 hours (4 years) |
+| `TiR` | Time in reporting period | query runtime in hours |
+| `RR` | Resource reserved ratio | 0.5 (shared) / 1.0 (dedicated) |
+| `ToR` | Total operating time | 1 (normalized) |
 
 ---
 
 ### 4. Software Carbon Intensity (SCI)
 
-**Formula:**
 ```
-SCI = (O + M) / R
-```
-
-**Components:**
-
-| Symbol | Name | Unit | Value | Notes |
-|--------|------|------|-------|-------|
-| `SCI` | Software Carbon Intensity | gCO2eq/unit | 0.001–10+ | Output metric |
-| `O` | Operational emissions | gCO2eq | — | From formula 2 |
-| `M` | Embodied emissions | gCO2eq | — | From formula 3 |
-| `R` | Functional unit | count | 1 | Per SQL query |
-
-**SCI Interpretation:**
-
-| Range | Meaning | Action |
-|-------|---------|--------|
-| **< 0.01** | Ultra-efficient | Exemplary |
-| **0.01–0.1** | Excellent | Recommend as pattern |
-| **0.1–1.0** | Good | Acceptable |
-| **1.0–5.0** | Moderate | Monitor |
-| **5.0–10** | Poor | Optimize |
-| **> 10** | Critical | Urgent action |
-
-**Example:**
-```
-QueryCarbon SCI for the SELECT query:
-SCI = (233 + 0.0127) / 1
-    = 233.01 gCO2eq per query
-Grade: Poor (threshold exceeded)
+SCI = (O + M) / R        where R = 1 SQL query
 ```
 
-**Source:** Green Algorithms 2021, Definition 1
+| SCI Range | Meaning |
+|-----------|---------|
+| < 0.01 | Ultra-efficient |
+| 0.01–0.1 | Excellent |
+| 0.1–1.0 | Good |
+| 1.0–5.0 | Moderate |
+| 5.0–10 | Poor |
+| > 10 | Critical |
 
 ---
 
 ### 5. Sustainability Score (0–100)
 
-**Formula:**
 ```
-S = 100 - clamp((w₁×N_emissions + w₂×N_cost + w₃×N_duration + w₄×N_rows) × 100, 0, 100)
-```
-
-**Step 1: Normalize Individual Metrics**
-
-**Log Normalization (Emissions & Rows):**
-```
-N_emissions = log(SCI + 1) / log(SCI_baseline + 1)
-N_rows = log(rows + 1) / log(rows_baseline + 1)
-```
-- Handles large dynamic ranges without extreme outliers
-- Logarithmic: diminishing penalty for increasingly bad values
-
-**Log Normalization (Cost):**
-```
-N_cost = log(cost + 1) / log(cost_baseline + 1)
-```
-- PostgreSQL planner cost can range 1–1,000,000+
-- Log scale prevents single metric from dominating
-
-**Linear Normalization (Duration):**
-```
-N_duration = execution_milliseconds / duration_baseline
-```
-- Simple proportional: 2× baseline = 2.0 normalized
-- Most queries in 1–10 range (normalized)
-
-**Step 2: Apply Weights**
-
-| Metric | Weight | Rationale |
-|--------|--------|-----------|
-| Emissions (`w₁`) | **0.40** | 40% - Carbon footprint dominance |
-| Cost (`w₂`) | **0.25** | 25% - Query efficiency penalty |
-| Duration (`w₃`) | **0.20** | 20% - Execution speed |
-| Rows (`w₄`) | **0.15** | 15% - Result set size |
-| **Total** | **1.00** | — |
-
-**Step 3: Combine & Invert**
-
-```
-weighted_sum = w₁×N_emissions + w₂×N_cost + w₃×N_duration + w₄×N_rows
-raw_score = weighted_sum × 100
-final_score = 100 - clamp(raw_score, 0, 100)
+S = 100 − clamp((w₁×N_emissions + w₂×N_cost + w₃×N_duration + w₄×N_rows) × 100, 0, 100)
 ```
 
-**Example Calculation:**
+**Normalization:**
+
 ```
-Query Metrics:
-- SCI: 0.15 gCO2eq
-- Planner cost: 2500 units
-- Duration: 125 ms
-- Rows: 5,000
-
-Normalized (with baselines: SCI=0.1, cost=5000, duration=500ms, rows=10000):
-- N_emissions = log(0.15+1) / log(0.1+1) = log(1.15) / log(1.1) = 0.496
-- N_cost = log(2501) / log(5001) = 0.914
-- N_duration = 125 / 500 = 0.25
-- N_rows = log(5001) / log(10001) = 0.901
-
-Weighted sum:
-= (0.40 × 0.496) + (0.25 × 0.914) + (0.20 × 0.25) + (0.15 × 0.901)
-= 0.198 + 0.229 + 0.05 + 0.135
-= 0.612
-
-Final Score:
-= 100 - (0.612 × 100)
-= 100 - 61.2
-= 38.8 (POOR tier)
+N_emissions = log(SCI + 1)  / log(SCI_baseline + 1)
+N_cost      = log(cost + 1) / log(cost_baseline + 1)
+N_rows      = log(rows + 1) / log(rows_baseline + 1)
+N_duration  = execution_ms  / duration_baseline
 ```
 
-**Default Baselines:**
+**Default weights and baselines:**
 
-| Metric | Baseline | Rationale |
-|--------|----------|-----------|
-| SCI | 0.1 gCO2eq | Typical small-to-medium query |
-| Cost | 5,000 units | Typical PostgreSQL query plan |
-| Duration | 500 ms | Sweet spot for average query |
-| Rows | 10,000 | Realistic result set |
-
-**Source:** Composite methodology from Green Algorithms 2021 + ISO/IEC 21031
+| Parameter | Value |
+|-----------|-------|
+| w₁ emissions | 0.40 |
+| w₂ cost | 0.25 |
+| w₃ duration | 0.20 |
+| w₄ rows | 0.15 |
+| SCI baseline | 0.1 gCO2eq |
+| Cost baseline | 5,000 units |
+| Duration baseline | 500 ms |
+| Rows baseline | 10,000 |
 
 ---
 
 ### 6. Classification Tiers
 
-**Score-to-Tier Mapping:**
+| Score | Tier | Color |
+|-------|------|-------|
+| 90–100 | EXCELLENT | Green |
+| 70–89 | GOOD | Blue |
+| 50–69 | MODERATE | Amber |
+| 25–49 | POOR | Orange |
+| 0–24 | CRITICAL | Red |
 
-| Score | Tier | Label | Color | Badge | Meaning |
-|-------|------|-------|-------|-------|---------|
-| 90–100 | ⭐⭐⭐⭐⭐ | **EXCELLENT** | 🟢 Green | `badge-excellent` | Feasible, green. Deploy immediately. |
-| 70–89 | ⭐⭐⭐⭐ | **GOOD** | 🔵 Blue | `badge-good` | Feasible performance. Normal usage ok. |
-| 50–69 | ⭐⭐⭐ | **MODERATE** | 🟡 Amber | `badge-moderate` | Feasible with caveats. Consider optimization. |
-| 25–49 | ⭐⭐ | **POOR** | 🟠 Orange | `badge-poor` | Not recommended. Optimization recommended. |
-| 0–24 | ⭐ | **CRITICAL** | 🔴 Red | `badge-critical` | Infeasible. Blockable in strict mode. |
+---
 
-**Classification Rules:**
-```javascript
-if (score >= 90) return 'EXCELLENT';
-if (score >= 70) return 'GOOD';
-if (score >= 50) return 'MODERATE';
-if (score >= 25) return 'POOR';
-return 'CRITICAL';
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                       FRONTEND (React/Vite)                      │
+│  AnalyzePage  │  Dashboard  │  ReportsPage  │  QueryDetail       │
+│                                                                  │
+│  ┌─ Carbon Results tab ────────┐  ┌─ Optimization tab ─────────┐ │
+│  │ SCI · Score · Emissions    │  │ FindingCard list           │ │
+│  │ Runtime · Cost · Rows      │  │ Severity filter            │ │
+│  │                            │  │ Apply Fix → editor rewrite │ │
+│  └────────────────────────────┘  └───────────────────────────┘ │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ HTTP/REST
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                  BACKEND API (Express, port 3001)                │
+│                                                                  │
+│  POST /api/analyze          POST /api/optimize-query            │
+│  GET  /api/databases        GET  /api/history/:id               │
+│  GET  /api/history          GET  /api/dashboard                 │
+│                                                                  │
+│  ┌─ carbonCalculator.js ──┐  ┌─ explainAnalyzer.js ──────────┐  │
+│  │ Energy, O, M, SCI      │  │ Walk EXPLAIN JSON → P1–P10    │  │
+│  │ Score, Classification  │  └────────────────────────────────┘  │
+│  └────────────────────────┘  ┌─ indexSimulator.js ───────────┐  │
+│                               │ hypopg → cost_before/after   │  │
+│  ┌─ sqlPatternMatcher.js ─┐  └────────────────────────────────┘  │
+│  │ Regex rules R1–R12     │  ┌─ optimizationRanker.js ───────┐  │
+│  └────────────────────────┘  │ Merge · Dedup · Rank findings │  │
+│                               └────────────────────────────────┘  │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ pg (PostgreSQL client)
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    POSTGRESQL DATABASE                           │
+│  querycarbon_history  │  target user databases                  │
+│  (analysis records)   │  (queries run & analyzed here)          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow — Query Analysis
+
+```
+User submits SQL
+      │
+      ▼
+POST /api/analyze
+      │
+      ├─► Execute query on target DB → measure runtime, rows, cost
+      ├─► Run EXPLAIN (FORMAT JSON, ANALYZE) → extract plan
+      │
+      ▼
+carbonCalculator.js
+      ├─► calculateEnergy()
+      ├─► calculateOperationalEmissions()
+      ├─► calculateEmbodiedEmissions()
+      ├─► calculateSCI()
+      ├─► calculateSustainabilityScore()
+      └─► classifyScore()
+      │
+      ▼
+Save to querycarbon_history
+      │
+      ▼
+Return {query_id, sci, score, classification, ...}
+      │
+      ▼  (auto-fired if findings expected)
+POST /api/optimize-query  {query_id}
+      │
+      ├─► Track 1: explainAnalyzer → P1–P10 findings
+      ├─► Track 2: indexSimulator → hypopg cost simulation
+      └─► Track 3: sqlPatternMatcher → R1–R12 findings
+      │
+      ▼
+optimizationRanker → merge, deduplicate, rank
+      │
+      ▼
+Return {findings[], total_sci_delta_estimated, hypopg_available}
+      │
+      ▼
+Frontend: show FindingCards in "Optimization" tab
+          "Apply Fix" → rewrite SQL directly in editor
 ```
 
 ---
 
-## 🏗️ Architecture
+## Query Optimizer — How It Works
 
-### System Design
+The optimizer runs three independent tracks every time a query is analyzed, then merges and ranks the combined findings.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      FRONTEND (React)                   │
-│  AnalyzePage │ Dashboard │ ReportsPage │ SettingsPage   │
-└────────────────────────┬────────────────────────────────┘
-                         │ HTTP/REST (port 5173)
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│        BACKEND API (Express.js, port 3001)              │
-│  ┌──────────────┬──────────────────┬──────────────────┐ │
-│  │  Routes      │  Controllers     │  Services        │ │
-│  │  /analyze    │  analyzeQuery()  │  carbonCalc.js   │ │
-│  │  /databases  │  getDatabases()  │  hardwareDetect. │ │
-│  │  /history    │  getHistory()    │                  │ │
-│  │  /dashboard  │  getDashboard()  │                  │ │
-│  └──────────────┴──────────────────┴──────────────────┘ │
-└────────────────────────┬────────────────────────────────┘
-                         │ PostgreSQL Client
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│          POSTGRESQL DATABASE (port 5432)                │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  querycarbon_history table                         │ │
-│  │  - query_text, runtime_s, energy_kwh              │ │
-│  │  - operational_emissions_gco2                      │ │
-│  │  - embodied_emissions_gco2, total_emissions_gco2   │ │
-│  │  - sci, classification, hardware_config           │ │
-│  │  - tables_involved, created_at                     │ │
-│  └────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
-```
+---
 
-### Data Flow
+### Track 1 — EXPLAIN Pattern Analysis (P1–P10)
 
-```
-1. User enters SQL query
-                │
-                ▼
-2. Frontend sends: {sql, database, hardware_params}
-                │
-                ▼
-3. Backend executes query on target PostgreSQL DB
-                │
-                ├─► Measures runtime
-                ├─► Extracts via EXPLAIN (FORMAT JSON)
-                ├─► Gets row count & planner cost
-                │
-                ▼
-4. Passes to carbonCalculator.js
-                │
-                ├─► calculateEnergy() → kWh
-                ├─► calculateOperationalEmissions() → gCO2eq
-                ├─► calculateEmbodiedEmissions() → gCO2eq
-                ├─► calculateSCI() → total intensity
-                ├─► calculateSustainabilityScore() → 0-100
-                ├─► classifyScore() → tier
-                │
-                ▼
-5. Saves to querycarbon_history table
-                │
-                ▼
-6. Returns response with all metrics + configuration snapshot
-                │
-                ▼
-7. Frontend renders results with gauge, tables, metrics
+Executes `EXPLAIN (FORMAT JSON, ANALYZE)` on the live database and recursively walks every node in the plan tree. Each pattern checker reads actual runtime values from the plan — nothing is estimated.
+
+---
+
+#### P1 — Sequential Scan with Filter
+
+**What triggers it:** A `Seq Scan` node with a `Filter` clause on a table that isn't also matched by P2.
+
+**Why it's bad:** Full table scan. Every row is read and then filtered post-read. For large tables this is O(n) I/O regardless of how many rows are ultimately returned.
+
+**Severity:** High if actual rows > 10,000; Medium otherwise.
+
+**Fix generated:** `CREATE INDEX ON <table> (<filter_columns>)` using the actual column names extracted from the `Filter` expression.
+
+---
+
+#### P2 — Function Call on Filter Column (suppresses P1)
+
+**What triggers it:** A `Seq Scan` where the `Filter` expression contains a function call (e.g. `lower(email)`) or a `::` cast operator.
+
+**Why it's bad:** A standard B-tree index cannot be used when a function wraps the indexed column. The function is evaluated for every row.
+
+**Severity:** High.
+
+**Fix generated:** `CREATE INDEX ON <table> (<function_expression>)` — a functional/expression index that mirrors the exact filter expression from the plan.
+
+---
+
+#### P3 — Sort Without Supporting Index
+
+**What triggers it:** A `Sort` node processing more than 5,000 rows when no Index Scan or Index Only Scan is present in its subtree.
+
+**Why it's bad:** In-memory or disk-based sort. O(n log n) work that a covering index on the sort column would eliminate.
+
+**Severity:** Medium.
+
+**Fix generated:** `CREATE INDEX ON <table> (<sort_key_columns>)` using the actual `Sort Key` values from the plan node.
+
+---
+
+#### P4 — Nested Loop on Large Outer Set
+
+**What triggers it:** A `Nested Loop` node where the outer child has more than 1,000 actual rows.
+
+**Why it's bad:** Nested Loop cost is O(outer × inner). Without an index on the inner join column, every outer row triggers a full scan of the inner side.
+
+**Severity:** High if outer rows ≥ 10,000; Medium otherwise.
+
+**Fix generated:** `CREATE INDEX ON <outer_table> (join_column)` — outer table name is extracted from the plan; join column is a placeholder because EXPLAIN does not expose join key names.
+
+---
+
+#### P5 — Bad Cardinality Estimate
+
+**What triggers it:** Any plan node where `Plan Rows` vs `Actual Rows` differ by a factor of 10× or more.
+
+**Why it's bad:** The planner chose this join/scan strategy based on incorrect statistics. The actual plan shape (join order, scan type) may be completely wrong.
+
+**Severity:** High if ratio ≥ 100×; Medium otherwise.
+
+**Fix generated:** `ANALYZE <table>` with an `ALTER TABLE ... SET STATISTICS 500` recommendation. No DDL — this is a statistics issue, not an index issue.
+
+---
+
+#### P6 — CTE Used as a Materialization Fence
+
+**What triggers it:** A `CTE Scan` node in the plan (PostgreSQL 12+ only).
+
+**Why it's bad:** PostgreSQL 12+ materializes CTEs by default, evaluating the full CTE before any outer predicates are applied. This blocks predicate pushdown.
+
+**Severity:** Medium.
+
+**Fix generated:** Suggestion to add `NOT MATERIALIZED` to the CTE declaration, using the actual CTE name from the plan node. No DDL.
+
+---
+
+#### P7 — Index Scan with High Filter-Removal Ratio
+
+**What triggers it:** An `Index Scan` where `Rows Removed by Filter` is more than 5× the `Actual Rows` returned.
+
+**Why it's bad:** The index is found but too broad. A large number of rows pass the index condition and then get discarded by a secondary filter — effectively degrading to a sequential scan through the index.
+
+**Severity:** Medium.
+
+**Fix generated:** `CREATE INDEX ON <table> (existing_col, <filter_columns>)` — a composite index incorporating the secondary filter column(s).
+
+---
+
+#### P8 — Hash Join on Very Small Tables
+
+**What triggers it:** A `Hash Join` node where both sides have fewer than 100 actual rows.
+
+**Why it's bad:** Building a hash table for tiny data sets has more overhead than a simple Nested Loop with an index. The planner chose wrong, usually because join column statistics are stale.
+
+**Severity:** Low.
+
+**Fix generated:** `CREATE INDEX ON <table_a> (join_column)` — with the first join-side table name from the plan.
+
+---
+
+#### P9 — Bitmap Heap Scan with Very High Row Count
+
+**What triggers it:** A `Bitmap Heap Scan` returning more than 50,000 rows.
+
+**Why it's bad:** Bitmap scans amortize random I/O well for medium result sets, but degrade at high row counts because the bitmap must be rechecked for every heap block.
+
+**Severity:** Medium.
+
+**Fix generated:** `CREATE INDEX ON <table> (<recheck_condition_columns>)` using columns extracted from the actual `Recheck Cond` of the plan node.
+
+---
+
+#### P10 — Explicit Sort on DESC Column Without Index Scan Backward
+
+**What triggers it:** A `Sort` node with at least one `DESC` sort key when no `Index Scan Backward` node exists in the subtree.
+
+**Why it's bad:** An index that includes the DESC column allows PostgreSQL to traverse it backwards (`Index Scan Backward`) — zero sort cost. Without that index, an explicit O(n log n) sort is performed.
+
+**Severity:** Low.
+
+**Fix generated:** `CREATE INDEX ON <table> (<desc_columns> DESC)` using the actual `Sort Key` values from the plan.
+
+---
+
+### Track 2 — HypoPG Index Simulation
+
+Track 2 takes every finding from Track 1 that has a generated `CREATE INDEX` DDL and simulates whether that index would actually reduce the query's planner cost — using your real database and real data.
+
+**How it works:**
+
+1. Checks whether the `hypopg` extension is installed in the target database.
+2. For each Track 1 finding (up to 5), calls `hypopg_create_index(ddl)` — this creates the index in memory only, no disk I/O, no locking.
+3. Re-runs `EXPLAIN (FORMAT JSON)` (no ANALYZE) with the hypothetical index in place. PostgreSQL's planner will use it if it's better.
+4. Computes `cost_delta = cost_after − cost_before`. Negative means improvement.
+5. Computes `sci_delta = sci_original × (cost_delta / cost_before)` — estimated carbon savings.
+6. If two findings target the same table, attempts a **composite index** across their merged column lists and keeps whichever (composite or individual) achieves a lower cost.
+7. Drops all hypothetical indexes in a `finally` block — they never persist.
+
+**If `hypopg` is not installed:** all findings remain at `simulation: heuristic` — the DDL recommendations are still shown but without cost delta numbers.
+
+**Install hypopg:**
+```sql
+-- Ubuntu/Debian
+sudo apt install postgresql-<version>-hypopg
+
+-- macOS (Homebrew)
+brew install hypopg
+
+-- Within psql
+CREATE EXTENSION hypopg;
 ```
 
 ---
 
-## 🚀 Installation & Deployment
+### Track 3 — SQL Pattern Rules (R1–R12)
+
+Runs 12 regex-based rules against the raw SQL string independently of the EXPLAIN plan. Fires only when the pattern matches. Each rule produces a `suggestion`, a `rationale`, and a `severity`.
+
+---
+
+#### R1 — NOT IN with Subquery
+
+**Pattern:** `NOT IN (SELECT ...)`
+
+**Severity:** High
+
+**Why it's bad:** `NOT IN` evaluates the subquery for every outer row. If the subquery returns even one `NULL`, the entire `NOT IN` returns false for all outer rows — a silent correctness bug as well as a performance issue.
+
+**Rewrite applied:** The editor is rewritten to a `LEFT JOIN` anti-join template using table names extracted from your SQL.
+
+```sql
+-- Inefficient
+SELECT customer_id FROM customer
+WHERE customer_id NOT IN (SELECT customer_id FROM rental);
+
+-- After applying fix
+SELECT customer.*
+FROM customer
+LEFT JOIN rental _x ON customer.customer_id = _x.customer_id
+WHERE _x.customer_id IS NULL;
+```
+
+---
+
+#### R2 — Correlated NOT EXISTS Subquery
+
+**Pattern:** `NOT EXISTS (SELECT ... WHERE ...)` where the subquery references the outer query
+
+**Severity:** Medium
+
+**Why it's bad:** A correlated `NOT EXISTS` re-executes the subquery for every outer row — O(n × m) executions.
+
+**Rewrite applied:** `LEFT JOIN` anti-join template.
+
+```sql
+-- Inefficient
+SELECT f.film_id, f.title FROM film f
+WHERE NOT EXISTS (
+  SELECT 1 FROM inventory i WHERE i.film_id = f.film_id
+);
+
+-- After applying fix
+SELECT f.*
+FROM film f
+LEFT JOIN inventory _x ON f.film_id = _x.film_id
+WHERE _x.film_id IS NULL;
+```
+
+---
+
+#### R3 — SELECT * in Subquery or CTE
+
+**Pattern:** `(SELECT * ...)` or `WITH name AS (SELECT * ...)`
+
+**Severity:** Medium
+
+**Why it's bad:** Forces the engine to fetch every column even when only one or two are referenced by the outer query. Wastes I/O and memory.
+
+**Rewrite applied:** Annotates the `SELECT *` in the subquery with a comment directing you to list specific columns.
+
+---
+
+#### R4 — OR Equality Conditions on Same Column
+
+**Pattern:** `col = X OR col = Y OR col = Z`
+
+**Severity:** Low
+
+**Why it's bad:** Verbose and error-prone. Identical query plan to `IN`, but harder to maintain and extend.
+
+**Rewrite applied:** Actual SQL transformation — the regex extracts column name and all literal values and rewrites to `col IN (X, Y, Z)`.
+
+```sql
+-- Inefficient
+SELECT * FROM film WHERE rating = 'PG' OR rating = 'G' OR rating = 'PG-13';
+
+-- After applying fix
+SELECT * FROM film WHERE rating IN ('PG', 'G', 'PG-13');
+```
+
+---
+
+#### R5 — SELECT DISTINCT Masking a Bad JOIN
+
+**Pattern:** `SELECT DISTINCT ... JOIN ...`
+
+**Severity:** Medium
+
+**Why it's bad:** `DISTINCT` after a `JOIN` almost always hides a missing or incorrect join predicate that produces accidental duplicate rows. `DISTINCT` removes the symptom, not the cause.
+
+**Rewrite applied:** Replaces `SELECT DISTINCT` with `SELECT` and appends an explicit `GROUP BY` clause using the extracted column list.
+
+```sql
+-- Inefficient (masks fanout from missing predicate)
+SELECT DISTINCT c.customer_id, c.first_name, c.last_name
+FROM customer c
+JOIN rental r ON c.customer_id = r.customer_id;
+
+-- After applying fix
+SELECT c.customer_id, c.first_name, c.last_name
+FROM customer c
+JOIN rental r ON c.customer_id = r.customer_id
+GROUP BY c.customer_id, c.first_name, c.last_name;
+```
+
+---
+
+#### R6 — Large OFFSET (Deep Pagination)
+
+**Pattern:** `OFFSET <value>` where value > 1,000
+
+**Severity:** High if > 10,000; Medium if 1,001–10,000
+
+**Why it's bad:** `LIMIT n OFFSET m` scans and discards `m` rows on every page request — O(offset) work even though only `n` rows are returned. At page 500 of 10 results, you scan 5,000 rows to return 10.
+
+**Rewrite applied:** Strips `OFFSET`, converts `LIMIT N OFFSET M` to `LIMIT N`, and inserts a keyset `WHERE sort_col > :last_seen_value` condition using the actual `ORDER BY` column extracted from your SQL.
+
+```sql
+-- Inefficient
+SELECT film_id, title FROM film
+ORDER BY film_id
+LIMIT 10 OFFSET 5000;
+
+-- After applying fix
+-- Replace :last_seen_value with the last "film_id" from your previous page
+SELECT film_id, title FROM film
+WHERE film_id > :last_seen_value
+ORDER BY film_id
+LIMIT 10;
+```
+
+---
+
+#### R7 — Implicit Type Coercion in WHERE Clause
+
+**Pattern:** Columns named `*_id`, `*_at`, `*_date`, `*_count`, `*_num`, or `*_amount` compared to a string literal
+
+**Severity:** Medium
+
+**Why it's bad:** Comparing a typed column to a string literal forces an implicit cast on every row, which prevents the planner from using an index on that column.
+
+**Rewrite applied:** Strips quotes from `_id` comparisons, adds `::timestamptz` for `_at`/`_date` columns, adds `::numeric` for `_count`/`_num`/`_amount` columns — applied to every match in the SQL.
+
+```sql
+-- Inefficient
+SELECT * FROM customer WHERE customer_id = '1';
+
+-- After applying fix
+SELECT * FROM customer WHERE customer_id = 1;
+```
+
+---
+
+#### R8 — Leading Wildcard LIKE Pattern
+
+**Pattern:** `LIKE '%...'`
+
+**Severity:** High
+
+**Why it's bad:** A leading wildcard means the B-tree index cannot be used for prefix matching. The engine must scan every row in the table.
+
+**Rewrite applied:** Converts `LIKE '%suffix'` to `LIKE 'suffix%'` for every occurrence (prefix search). Adds a comment explaining `pg_trgm` + GIN index for arbitrary substring search.
+
+```sql
+-- Inefficient
+SELECT title FROM film WHERE description LIKE '%robot%';
+
+-- After applying fix (prefix search variant)
+-- If you need substring/suffix search: CREATE EXTENSION pg_trgm;
+-- then: CREATE INDEX ON film USING gin(description gin_trgm_ops);
+SELECT title FROM film WHERE description LIKE 'robot%';
+```
+
+---
+
+#### R9 — HAVING Without GROUP BY
+
+**Pattern:** `HAVING ...` with no `GROUP BY` in the query
+
+**Severity:** Medium
+
+**Why it's bad:** Without `GROUP BY`, `HAVING` treats the entire result set as a single group. This is almost certainly a mistake — the intent was a `WHERE` clause.
+
+**Rewrite applied:** Replaces `HAVING` with `WHERE` directly.
+
+```sql
+-- Inefficient
+SELECT customer_id FROM payment HAVING amount > 5;
+
+-- After applying fix
+SELECT customer_id FROM payment WHERE amount > 5;
+```
+
+---
+
+#### R10 — Correlated Subquery in SELECT List
+
+**Pattern:** A `SELECT` subquery appearing in the column list (before `FROM`)
+
+**Severity:** High
+
+**Why it's bad:** The subquery re-executes for every row in the outer result set — O(n) subquery executions. On a 10,000-row outer table that's 10,000 subquery runs.
+
+**Rewrite applied:** Generates a `LEFT JOIN` template lifting the subquery into a derived table, using the outer table name extracted from your SQL. Fill in the aggregate column names.
+
+```sql
+-- Inefficient
+SELECT
+  c.customer_id,
+  c.first_name,
+  (SELECT COUNT(*) FROM rental r WHERE r.customer_id = c.customer_id) AS rental_count
+FROM customer c;
+
+-- After applying fix (fill in group_col and aggregate)
+SELECT customer.*, sub.agg_value
+FROM customer customer
+LEFT JOIN (
+    SELECT group_col, aggregate_fn(col) AS agg_value
+    FROM sub_table
+    GROUP BY group_col
+) sub ON customer.id = sub.group_col;
+```
+
+---
+
+#### R11 — COUNT(column) Instead of COUNT(*)
+
+**Pattern:** `COUNT(<column_name>)` where column is not `*` or `1`
+
+**Severity:** Low
+
+**Why it's bad:** `COUNT(column)` must inspect each value to exclude NULLs. `COUNT(*)` counts all rows without value inspection and is measurably faster.
+
+**Rewrite applied:** Replaces every `COUNT(col)` with `COUNT(*)` in the SQL.
+
+```sql
+-- Inefficient
+SELECT COUNT(rental_id) FROM rental;
+
+-- After applying fix
+SELECT COUNT(*) FROM rental;
+```
+
+---
+
+#### R12 — UNION Instead of UNION ALL
+
+**Pattern:** `UNION` (plain) with no `ALL` keyword
+
+**Severity:** Medium
+
+**Why it's bad:** Plain `UNION` performs a deduplication pass over the combined result — O(n log n) sort or hash. If both sides are guaranteed to produce disjoint rows, this is pure wasted work.
+
+**Rewrite applied:** Replaces every `UNION` (not already `UNION ALL`) with `UNION ALL`. A safety warning is prepended reminding you to verify disjoint rows before keeping the change.
+
+```sql
+-- Inefficient
+SELECT first_name, last_name FROM customer
+UNION
+SELECT first_name, last_name FROM staff;
+
+-- After applying fix
+-- ⚠  Verify both sides produce disjoint rows before keeping this change
+SELECT first_name, last_name FROM customer
+UNION ALL
+SELECT first_name, last_name FROM staff;
+```
+
+---
+
+### Ranking & Merging
+
+After all three tracks run, `optimizationRanker.js` combines and orders the findings:
+
+**Deduplication:** If Track 1 and Track 3 both flag the same table, the Track 1 finding (backed by live EXPLAIN evidence) is kept and the Track 3 finding for that table is dropped.
+
+**Sort order:**
+1. **Severity** — `high` → `medium` → `low`
+2. **Simulation status** — `simulated` (real hypopg result) → `heuristic` → `no_improvement` → `not_applicable`
+3. **SCI delta** — most negative (most carbon savings) first; `null` goes last
+
+---
+
+## Installation & Setup
 
 ### Prerequisites
 
-- **Node.js**: 18.0.0 or higher
-- **npm**: 8.0.0 or higher
-- **PostgreSQL**: 12.0 or higher
-- **Python**: 3.8+ (optional, for hardware detection)
+- Node.js 18+
+- PostgreSQL 12+
+- (Optional) `hypopg` extension for index simulation
 
-### Local Development Setup
+### Steps
 
-**1. Clone & Install Backend:**
+**1. Clone and install dependencies:**
 
 ```bash
-cd querycarbon/backend
+# Backend
+cd FinalMiniProject/backend
+npm install
+
+# Frontend
+cd FinalMiniProject/frontend
 npm install
 ```
 
-**2. Install Frontend:**
+**2. Configure `backend/.env`:**
 
 ```bash
-cd querycarbon/frontend
-npm install
-```
-
-**3. Configure Database:**
-
-Create `.env` in `/backend`:
-
-```bash
-# PostgreSQL Connection
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your_secure_password
-DB_NAME=querycarbon
-
-# Server
-PORT=3001
-CORS_ORIGIN=http://localhost:5173
-
-# Optional: Hardware Detection
-ENABLE_HW_AUTO_DETECT=true
-```
-
-**4. Initialize Database:**
-
-```bash
-cd backend
-psql -U postgres -h localhost << EOF
-CREATE DATABASE querycarbon;
-EOF
-npm start
-# Runs migrations automatically
-```
-
-**5. Start Services:**
-
-**Terminal 1 - Backend:**
-```bash
-cd backend
-npm start
-# Listens on http://localhost:3001
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd frontend
-npm run dev
-# Listens on http://localhost:5173
-```
-
-### Production Deployment
-
-#### **Using Docker (Recommended)**
-
-**Dockerfile (Backend):**
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app/backend
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-EXPOSE 3001
-CMD ["npm", "start"]
-```
-
-**Docker Compose:**
-```yaml
-version: '3.9'
-services:
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: querycarbon
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build: ./backend
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: querycarbon
-      PORT: 3001
-    ports:
-      - "3001:3001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_BACKEND_URL: http://localhost:3001
-    ports:
-      - "5173:5173"
-    depends_on:
-      - backend
-
-volumes:
-  postgres_data:
-```
-
-**Deploy with Docker Compose:**
-```bash
-export DB_PASSWORD=$(openssl rand -base64 32)
-docker-compose up -d
-```
-
-#### **Using Kubernetes (Enterprise)**
-
-**Deployment manifest:** (See `k8s/` folder for full configs)
-
-```bash
-kubectl apply -f k8s/postgres-deployment.yaml
-kubectl apply -f k8s/backend-deployment.yaml
-kubectl apply -f k8s/frontend-deployment.yaml
-kubectl apply -f k8s/ingress.yaml
-```
-
-#### **Environment Variables (Production)**
-
-```bash
-# Security
-NODE_ENV=production
-LOG_LEVEL=info
-
-# Database (use RDS/managed)
-DB_HOST=querycarbon-db.c1234.rds.amazonaws.com
-DB_PORT=5432
-DB_USER=admin
-DB_PASSWORD=${SECRETS_MANAGER_PASSWORD}
-DB_SSL=true
-
-# API
-PORT=3001
-CORS_ORIGIN=https://querycarbon.mycompany.com
-
-# Monitoring
-ENABLE_METRICS=true
-SENTRY_DSN=${SENTRY_PROJECT_KEY}
-```
-
----
-
-## 📡 API Documentation
-
-### Base URL
-```
-http://localhost:3001/api
-```
-
-### Authentication
-Currently open (add JWT in Phase 2). For now, use IP whitelisting or VPN in production.
-
----
-
-### 1. Analyze Query
-**POST** `/api/analyze`
-
-**Request:**
-```json
-{
-  "sql": "SELECT * FROM customers WHERE created_at > '2024-01-01'",
-  "database": "production",
-  "cpuCores": 16,
-  "powerPerCore": 12,
-  "cpuUtilization": 0.65,
-  "ramGb": 64,
-  "pue": 1.3,
-  "gridIntensity": 442
-}
-```
-
-**Response (200):**
-```json
-{
-  "query_id": 42,
-  "created_at": "2026-02-28T15:30:45.123Z",
-  "database": "production",
-  "sql_snippet": "SELECT * FROM customers WHERE created_at > '2024-01-01'",
-  "tables_involved": ["customers"],
-  "row_count": 15234,
-  "fields": ["id", "name", "email", "created_at"],
-  "results_preview": [
-    {"id": 1, "name": "John Doe", "email": "john@example.com", "created_at": "2024-01-05"},
-    {"id": 2, "name": "Jane Smith", "email": "jane@example.com", "created_at": "2024-01-08"}
-  ],
-  "actual_runtime_ms": 234.56,
-  "runtime_s": 0.23456,
-  
-  "energy_kwh": 0.0000312,
-  "operational_emissions_gco2": 0.01382,
-  "embodied_emissions_gco2": 0.000089,
-  "total_emissions_gco2": 0.01391,
-  "sci_gco2eq_per_query": 0.01391,
-  
-  "sustainability_score": 78,
-  "classification": "GOOD",
-  "tier_label": "Good",
-  "tier_description": "Feasible",
-  
-  "normalized_metrics": {
-    "emissions": 0.42,
-    "cost": 0.18,
-    "duration": 0.47,
-    "rows": 0.95
-  },
-  
-  "grid_intensity_used": 442,
-  "pue_used": 1.3,
-  
-  "configuration": {
-    "weights": {
-      "emissions": 0.40,
-      "cost": 0.25,
-      "duration": 0.20,
-      "rows": 0.15
-    },
-    "baselines": {
-      "SCI": 0.1,
-      "cost": 5000,
-      "duration": 500,
-      "rows": 10000
-    }
-  }
-}
-```
-
-**Error (400):**
-```json
-{
-  "error": "Query execution failed",
-  "detail": "relation \"customers\" does not exist"
-}
-```
-
----
-
-### 2. Get Databases
-**GET** `/api/databases`
-
-**Response:**
-```json
-{
-  "databases": [
-    {"name": "production", "size_mb": 1024},
-    {"name": "staging", "size_mb": 512},
-    {"name": "test", "size_mb": 128}
-  ]
-}
-```
-
----
-
-### 3. Get Tables
-**GET** `/api/databases/{dbName}/tables`
-
-**Response:**
-```json
-{
-  "tables": [
-    {"name": "customers", "schema": "public"},
-    {"name": "orders", "schema": "public"},
-    {"name": "products", "schema": "public"}
-  ]
-}
-```
-
----
-
-### 4. Get Hardware Config
-**GET** `/api/hardware-config`
-
-**Response:**
-```json
-{
-  "cpuCores": 16,
-  "powerPerCore": 12,
-  "cpuUtilization": 0.65,
-  "ramGb": 64,
-  "pue": 1.3,
-  "gridIntensity": 442,
-  "te": 1600000,
-  "el": 35040,
-  "rr": 0.5,
-  "tor": 8760,
-  "detected": true,
-  "detection_method": "dmidecode + /proc/cpuinfo"
-}
-```
-
----
-
-### 5. Get History
-**GET** `/api/history?limit=50&offset=0&search=SELECT&classification=MODERATE&days=30`
-
-**Response:**
-```json
-{
-  "rows": [
-    {
-      "id": 42,
-      "query_text": "SELECT * FROM customers...",
-      "database_name": "production",
-      "runtime_s": 0.234,
-      "energy_kwh": 0.0000312,
-      "operational_emissions_gco2": 0.01382,
-      "embodied_emissions_gco2": 0.000089,
-      "total_emissions_gco2": 0.01391,
-      "sci": 0.01391,
-      "classification": "GOOD",
-      "tables_involved": ["customers"],
-      "created_at": "2026-02-28T15:30:45.123Z"
-    }
-  ],
-  "total": 156
-}
-```
-
----
-
-### 6. Get Dashboard Stats
-**GET** `/api/dashboard?days=30`
-
-**Response:**
-```json
-{
-  "stats": {
-    "total_queries": 1523,
-    "total_co2_kg": 4.23,
-    "high_impact": 145,
-    "sustainable": 892,
-    "avg_gco2_per_query": 0.00277
-  },
-  "trend": [
-    {"day": "2026-02-26", "avg_gco2": 0.00245},
-    {"day": "2026-02-27", "avg_gco2": 0.00289},
-    {"day": "2026-02-28", "avg_gco2": 0.00312}
-  ],
-  "recent": [
-    {"id": 1523, "query_text": "...", "total_emissions_gco2": 0.05, ...}
-  ],
-  "distribution": {
-    "excellent_pct": 23.4,
-    "good_pct": 45.2,
-    "moderate_pct": 22.1,
-    "poor_pct": 7.8,
-    "critical_pct": 1.5
-  }
-}
-```
-
----
-
-### 7. Export History
-**GET** `/api/history/export?days=30`
-
-**Returns:** CSV file
-```csv
-id,query_text,database_name,runtime_s,energy_kwh,operational_emissions_gco2,embodied_emissions_gco2,total_emissions_gco2,sci,classification,created_at
-42,"SELECT * FROM customers...",production,0.234,0.0000312,0.01382,0.000089,0.01391,0.01391,GOOD,2026-02-28T15:30:45.123Z
-```
-
----
-
-## ⚙️ Configuration Guide
-
-### Per-Query Override (Advanced)
-
-All API parameters can be customized per-request:
-
-```json
-{
-  "sql": "...",
-  "database": "...",
-  "cpuCores": 32,
-  "powerPerCore": 14,
-  "cpuUtilization": 0.8,
-  "ramGb": 128,
-  "pue": 1.25,
-  "gridIntensity": 386,
-  "te": 2000000,
-  "el": 43800,
-  "rr": 1.0,
-  "tor": 8760,
-  "weights": {
-    "emissions": 0.5,
-    "cost": 0.2,
-    "duration": 0.15,
-    "rows": 0.15
-  },
-  "baselines": {
-    "SCI": 0.05,
-    "cost": 3000,
-    "duration": 200,
-    "rows": 5000
-  }
-}
-```
-
-### Global Configuration (backend/.env)
-
-```bash
-# Defaults for all queries
-DEFAULT_CPU_CORES=16
-DEFAULT_POWER_PER_CORE=12
-DEFAULT_CPU_UTILIZATION=0.65
-DEFAULT_RAM_GB=64
-DEFAULT_PUE=1.3
-DEFAULT_GRID_INTENSITY=442
-DEFAULT_TE=1600000
-DEFAULT_EL=35040
-DEFAULT_RR=0.5
-DEFAULT_TOR=8760
-
-# Metric weights (must sum to 1.0)
-WEIGHT_EMISSIONS=0.40
-WEIGHT_COST=0.25
-WEIGHT_DURATION=0.20
-WEIGHT_ROWS=0.15
-
-# Baselines for normalization
-BASELINE_SCI=0.1
-BASELINE_COST=5000
-BASELINE_DURATION=500
-BASELINE_ROWS=10000
-```
-
-### Regional Presets
-
-```bash
-# Preset: Europe (Low carbon)
-GRID_INTENSITY=233
-DEFAULT_PUE=1.15
-
-# Preset: US Average
-GRID_INTENSITY=386
-DEFAULT_PUE=1.25
-
-# Preset: India (High carbon)
-GRID_INTENSITY=442
-DEFAULT_PUE=1.35
-```
-
----
-
-## 📚 Usage Examples
-
-### Example 1: Simple SELECT Query
-
-**Scenario:** Quick lookup query on 100K customer table
-
-```sql
-SELECT * FROM customers 
-WHERE customer_id = 12345
-```
-
-**Measured:**
-- Runtime: 2.3 ms
-- Rows returned: 1
-- Planner cost: 25.4
-
-**System Config (US):**
-- 16 CPU cores, 12W/core, 50% utilization
-- 32GB RAM
-- Grid: 386 gCO2eq/kWh (US)
-- PUE: 1.25
-
-**Calculated:**
-- Energy: 0.0000009 kWh
-- Operational: 0.00035 gCO2eq
-- Embodied: 0.000002 gCO2eq
-- **SCI: 0.00035 gCO2eq/query**
-- **Score: 98 (EXCELLENT)** ✅
-
----
-
-### Example 2: Complex JOIN with Aggregation
-
-**Scenario:** Daily reporting query
-
-```sql
-SELECT 
-  o.date, 
-  COUNT(*), 
-  SUM(amount)
-FROM orders o
-JOIN customers c ON o.customer_id = c.id
-JOIN products p ON o.product_id = p.id
-WHERE o.date >= DATE_TRUNC('day', NOW() - INTERVAL '7 days')
-GROUP BY o.date
-ORDER BY o.date DESC
-```
-
-**Measured:**
-- Runtime: 452 ms
-- Rows returned: 7
-- Planner cost: 4823
-
-**Calculated (same config):**
-- Energy: 0.000189 kWh
-- Operational: 0.0729 gCO2eq
-- Embodied: 0.00043 gCO2eq
-- **SCI: 0.0733 gCO2eq/query**
-- **Score: 42 (POOR)** ⚠️
-  - Issues: Long runtime (452ms > 500ms baseline), high cost
-
-**Optimization Suggestion:**
-- Add composite index on `(date, customer_id)`
-- Pre-aggregate daily summaries in real-time
-
----
-
-### Example 3: Inefficient Table Scan
-
-**Scenario:** Missing index causes full table scan
-
-```sql
-SELECT email FROM large_users_table 
-WHERE created_year = 2024
--- No index on created_year!
-```
-
-**Measured:**
-- Runtime: 8,342 ms
-- Rows returned: 234,567
-- Planner cost: 187,432
-
-**Calculated:**
-- Energy: 0.00348 kWh
-- Operational: 1.342 gCO2eq
-- Embodied: 0.0079 gCO2eq
-- **SCI: 1.35 gCO2eq/query**
-- **Score: 8 (CRITICAL)** 🔴
-  - Issues: ~8 seconds runtime, scanning 3.2M rows, 187K cost units
-
-**Required Fix:**
-```sql
-CREATE INDEX idx_users_created_year 
-ON large_users_table(created_year);
-```
-
-After index, same query: **Score: 89 (GOOD)** ✅
-
----
-
-## 🔧 Troubleshooting
-
-### Issue: "relation does not exist"
-
-**Symptom:** `error: relation "table_name" does not exist`
-
-**Solution:**
-1. Verify database connection: Check `DB_HOST`, `DB_PORT`, `DB_NAME` in `.env`
-2. Verify table exists: `\dt table_name` in psql
-3. Check schema: Default is `public`. Specify explicitly in query:
-   ```sql
-   SELECT * FROM schema_name.table_name
-   ```
-
----
-
-### Issue: Black Screen on Frontend
-
-**Symptom:** Query analysis page shows black after clicking "Analyze"
-
-**Solution:**
-1. Check backend is running: `curl http://localhost:3001/health`
-2. Check browser console (F12) for JavaScript errors
-3. Verify CORS_ORIGIN matches frontend URL in `.env`
-4. Check backend logs for errors: `npm start 2>&1 | tail -20`
-
----
-
-### Issue: All Queries Show Same Score
-
-**Symptom:** Different queries (fast/slow) all get 70-80 score
-
-**Root Causes & Fixes:**
-
-| Cause | Check | Fix |
-|-------|-------|-----|
-| No planner cost extracted | Backend logs show "Estimated cost" | Ensure PostgreSQL version 10+ |
-| Baselines too high | `BASELINE_COST=5000` | Reduce to 3000 for stricter scoring |
-| Hardware params wrong | `DEFAULT_CPU_UTILIZATION=0.65` | Run `lscpu` or `dmidecode` to verify |
-
----
-
-### Issue: Database Connection Timeout
-
-**Symptom:** `Error: connect ECONNREFUSED 127.0.0.1:5432`
-
-**Solution:**
-```bash
-# Check PostgreSQL is running
-sudo service postgresql status  # Linux
-brew services list | grep postgres  # macOS
-Get-Service PostgreSQL*  # Windows
-
-# Or use Docker
-docker run -d \
-  -e POSTGRES_PASSWORD=password \
-  -p 5432:5432 \
-  postgres:15-alpine
-```
-
----
-
-### Issue: Memory Leak in Long-Running Analysis
-
-**Symptom:** Backend memory grows over time, causing slowdowns
-
-**Solution:**
-1. Update Node.js: `node --version` should be 18+
-2. Add memory limit: `NODE_OPTIONS="--max-old-space-size=2048"`
-3. Enable garbage collection logging:
-   ```bash
-   NODE_OPTIONS="--expose-gc" npm start
-   ```
-
----
-
-## 🐛 Logging & Monitoring
-
-### Backend Logs Format
-
-```
-[QueryCarbon] Analyzing query on database: "production"
-[QueryCarbon] Query preview: SELECT * FROM customers...
-[DB] Connected to database: "production"
-[DB] Planner cost extracted: 4823
-[DB] Query executed. Runtime: 452.34ms, Rows returned: 1500, Cost: 4823
-[QueryCarbon] ✓ Query executed on "production" in 452ms | Runtime: 452.34ms | Rows: 1500 | Cost: 4823
-```
-
-### Monitoring Endpoints
-
-**Health Check:**
-```bash
-curl http://localhost:3001/health
-# {"status": "ok", "timestamp": "2026-02-28T15:30:45.123Z"}
-```
-
-**Metrics (optional, Prometheus format):**
-```bash
-GET /metrics
-# querycarbon_queries_total{status="success"} 1523
-# querycarbon_avg_score 58.3
-```
-
----
-
-## 📊 Performance Benchmarks
-
-**System:** i7-10700K, 32GB RAM, PostgreSQL 14 on NVMe
-
-| Query Type | Avg Runtime | Planner Cost | SCI | Score |
-|-----------|------------|--------------|-----|-------|
-| PK Lookup | 1.2ms | 15 | 0.0001 | 99 |
-| Small JOIN | 12ms | 450 | 0.0045 | 92 |
-| Medium Agg | 85ms | 2100 | 0.031 | 68 |
-| Large JOIN | 450ms | 12000 | 0.158 | 35 |
-| Full Table Scan | 5200ms | 187000 | 1.35 | 8 |
-
----
-
-## 🤝 Contributing
-
-### Bug Reports
-```
-Report to: issues@querycarbon.dev
-Include:
-- PostgreSQL version
-- Query (sanitized)
-- Expected vs actual score
-- .env configuration (password masked)
-```
-
-### Feature Requests
-```
-Areas:
-1. Phase 2: Query optimization suggestions
-2. Phase 3: Historical trend analysis
-3. Phase 4: MySQL/Oracle support
-4. Custom weight profiles per team
-```
-
-### Code Style
-```bash
-# Linting
-npm run lint
-
-# Formatting
-npm run format
-
-# Tests
-npm test
-```
-
----
-
-## 📖 References
-
-### Scientific Papers
-
-1. **Lannelongue, et al. (2021)**
-   - Title: "Quantifying the carbon emissions of machine learning"
-   - Journal: Journal of Machine Learning Research
-   - DOI: arXiv:2007.10883
-   - URL: https://arxiv.org/abs/2007.10883
-
-2. **ISO/IEC 21031:2024**
-   - Title: "Environmental Information - Quantification and Communication of Embodied Carbon of Products"
-   - Publisher: International Organization for Standardization
-   - URL: https://www.iso.org/standard/69484.html
-
-3. **Aslanides, C. et al. (2021)**
-   - Title: "Bringing AI Back to Earth: Practical Challenges in Estimating the Carbon Footprint of Machine Learning"
-   - arXiv: 2012.07123
-   - Practical implementations guide
-
-### Data Sources
-
-- **Grid Carbon Intensity:**
-  - IEA World Energy Outlook 2023: https://www.iea.org/reports/world-energy-outlook-2023
-  - EPA eGRID 2023: https://www.epa.gov/egrid/download-data
-  - Ember Global Electricity Review: https://ember-climate.org/insights/monthly-electricity-data/
-  - https://www.electricitymap.org/
-
-- **Hardware Embodied Carbon:**
-  - Boavizta Hardware Database: https://github.com/Boavizta/boavizta-data-model
-  - Dell PowerEdge R740 Lifecycle Assessment
-  - ISO/IEC 14040/14044 (LCA methodology)
-
-- **PostgreSQL Documentation:**
-  - Query Planner: https://www.postgresql.org/docs/current/using-explain.html
-  - EXPLAIN costs: https://www.postgresql.org/docs/current/sql-explain.html
-
-### Standards & Frameworks
-
-- **Science Based Targets Initiative (SBTi)**
-  - Carbon Accounting Whitepaper: https://sciencebasedtargets.org/
-  
-- **Greenhouse Gas Protocol**
-  - Corporate Standard: https://ghgprotocol.org/corporate-standard
-
-- **Green Software Foundation**
-  - Software Carbon Intensity Spec: https://github.com/Green-Software-Foundation/sci
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** (pending legal review).
-
----
-
-## 📞 Support
-
-- **Email:** support@querycarbon.dev
-- **Documentation:** https://docs.querycarbon.dev
-- **GitHub Issues:** https://github.com/querycarbon/issues
-- **Slack Community:** (coming Q3 2026)
-
----
-
-**QueryCarbon v1.0.0** | Production Ready | February 28, 2026
-
-*Measuring query carbon footprint with scientific rigor and production reliability.*
-
-### Phase 1 Complete: Carbon Emission Estimation & Sustainability Scoring
-
-#### **1. Comprehensive Carbon Emission Formulas** 
-
-Implemented all official formulas from Green Algorithms 2021 and ISO/IEC 21031:2024:
-
-##### **Energy Consumption (kWh)**
-```
-E = t × (n_c × P_c × u_c + n_mem × 0.3725) × PUE × 0.001
-```
-- `t`: Execution time (seconds)
-- `n_c`: CPU cores
-- `P_c`: Power per core (W)
-- `u_c`: CPU utilization (0–1)
-- `n_mem`: Memory (GB)
-- `PUE`: Power Usage Effectiveness (default 1.3)
-
-##### **Operational Emissions (gCO2eq)**
-```
-O = E × I
-```
-- `I`: Grid carbon intensity (gCO2eq/kWh) - regional defaults: India 442, US 386, EU 233
-
-##### **Embodied Emissions (gCO2eq)**
-```
-M = TE × (TiR / EL) × (RR / ToR)
-```
-- `TE`: Total Embodied Carbon = 1,600,000 gCO2eq (mid-range server, Dell R740)
-- `EL`: Expected hardware lifespan = 35,040 hours (4 years, ISO/IEC 21031)
-- `TiR`: Query execution time (hours)
-- `RR`: Resource Reserved ratio (default 0.5 for shared servers)
-- `ToR`: Total operating time (default 1)
-
-##### **Software Carbon Intensity (SCI)**
-```
-SCI = (O + M) / R
-```
-- `R`: Functional unit = 1 SQL query
-
-##### **Sustainability Score (0-100)**
-```
-S = 100 - clamp((w1×N_emissions + w2×N_cost + w3×N_duration + w4×N_rows) × 100, 0, 100)
-```
-
-**Normalization Strategy:**
-- **Emissions & Rows**: Log normalization to handle large ranges
-  - `N_emissions = log(SCI + 1) / log(SCI_baseline + 1)`
-  - `N_rows = log(rows + 1) / log(rows_baseline + 1)`
-- **Cost & Duration**: Log scale (updated for stability)
-  - `N_cost = log(cost + 1) / log(cost_baseline + 1)`
-  - `N_duration = execution_ms / duration_baseline`
-
-**Default Weights & Baselines:**
-| Parameter | Value | Purpose |
-|-----------|-------|---------|
-| w1 (emissions) | 0.40 | Dominates scoring |
-| w2 (planner cost) | 0.25 | Query efficiency penalty |
-| w3 (duration) | 0.20 | Execution speed penalty |
-| w4 (rows examined) | 0.15 | Result set size penalty |
-| SCI_baseline | 0.1 gCO2eq | Typical small query |
-| cost_baseline | 5,000 units | Typical PostgreSQL cost |
-| duration_baseline | 500 ms | Sweet spot for avg query |
-| rows_baseline | 10,000 | Typical result set |
-
-#### **2. Classification Tier System (0-100 Score)**
-
-| Score | Tier | Label | Description |
-|-------|------|-------|-------------|
-| 90–100 | ⭐⭐⭐⭐⭐ | **Excellent** | Feasible, green (badge: green) |
-| 70–89 | ⭐⭐⭐⭐ | **Good** | Feasible (badge: blue) |
-| 50–69 | ⭐⭐⭐ | **Moderate** | Feasible with caveats (badge: amber) |
-| 25–49 | ⭐⭐ | **Poor** | Not recommended (badge: orange) |
-| 0–24 | ⭐ | **Critical** | Infeasible (blockable in strict mode) (badge: red) |
-
-#### **3. Configuration Snapshot for Reproducibility**
-
-Every analysis includes:
-- Weights snapshot (for per-analysis customization)
-- Baselines snapshot (for historical comparison)
-- Hardware configuration used
-- Grid intensity at time of analysis
-- Normalized metrics breakdown
-
----
-
-### Phase 1 Implementation Details
-
-#### **Backend Services** (`backend/services/carbonCalculator.js`)
-✅ All functions exported individually for flexibility:
-- `calculateEnergy()` - Energy computation
-- `calculateOperationalEmissions()` - Grid-based emissions
-- `calculateEmbodiedEmissions()` - Hardware lifecycle emissions
-- `calculateSCI()` - Software Carbon Intensity
-- `calculateSustainabilityScore()` - Full scoring algorithm
-- `classifyScore()` - Tier classification
-- `normalizeEmissions()`, `normalizeCost()`, `normalizeDuration()`, `normalizeRows()` - Normalization utilities
-- `extractTables()` - SQL table extraction from queries
-- `clamp()` - Value clamping utility
-- Constants: `DEFAULTS`, `WEIGHTS`, `BASELINES`, `CLASSIFICATION_TIERS`
-
-#### **Database Enhancements** (`backend/db/connection.js`)
-✅ PostgreSQL EXPLAIN integration:
-- Extracts planner cost from query plans via `EXPLAIN (FORMAT JSON)`
-- Fallback cost estimation: `100 + (runtimeMs^1.2 × 10)` for non-SELECT queries
-- Captures: runtime, row count, planner cost, field metadata
-
-#### **API Response Structure** (`backend/controllers/carbonController.js`)
-✅ Complete analysis response includes:
-```json
-{
-  "query_id": 42,
-  "database": "postgres",
-  "sql_snippet": "SELECT * FROM ...",
-  "tables_involved": ["customers", "orders"],
-  "row_count": 1523,
-  "actual_runtime_ms": 45.3,
-  "runtime_s": 0.0453,
-  "energy_kwh": 0.0000124,
-  
-  "operational_emissions_gco2": 0.0055,
-  "embodied_emissions_gco2": 0.000023,
-  "total_emissions_gco2": 0.0056,
-  "sci_gco2eq_per_query": 0.0056,
-  
-  "sustainability_score": 87,
-  "classification": "GOOD",
-  "tier_label": "Good",
-  "tier_description": "Feasible",
-  
-  "normalized_metrics": {
-    "emissions": 0.42,
-    "cost": 0.15,
-    "duration": 0.09,
-    "rows": 0.82
-  },
-  
-  "configuration": {
-    "weights": { ... },
-    "baselines": { ... }
-  }
-}
-```
-
-#### **Frontend Updates**
-✅ **AnalyzePage.jsx**:
-- New classification tier handling (EXCELLENT → CRITICAL)
-- Updated legend with new score ranges
-- Proper field mapping for API response
-- Hardware configuration panel with all parameters
-
-✅ **index.css**:
-- New badge styles: `.badge-excellent`, `.badge-good`, `.badge-poor`, `.badge-critical`
-- Maintained backward compatibility with old styles
-
-✅ **format.js**:
-- Updated classification mapping functions
-- Support for new 5-tier system with fallback for legacy data
-
-#### **Dashboard & Reports**
-- Statistics updated to use new classification tiers
-- Historical filtering works with new classifications
-- CSV export includes all new emission metrics
-
----
-
-### Key Technical Improvements
-
-#### **Bug Fixes** (Feb 28, 2026)
-1. ✅ **Black Screen Issue** - Fixed parameter naming mismatch (executionSeconds vs runtimeSeconds)
-2. ✅ **Field Name Mapping** - Aligned response fields with frontend expectations
-3. ✅ **Score Clamping** - Replaced linear cost normalization with log scale to prevent 0 scores
-
-#### **Query Cost Estimation**
-- Extracts PostgreSQL planner cost via EXPLAIN when available
-- Estimates cost from runtime: `100 + (runtimeMs^1.2 × 10)` to scale conservatively
-- Prevents unrealistic cost inflation that was causing all queries to show efficient
-
-#### **Realistic Baselines**
-| Metric | Old | New | Rationale |
-|--------|-----|-----|-----------|
-| SCI baseline | 1.0 | 0.1 | Better for typical queries |
-| Cost baseline | 10,000 | 5,000 | More typical PostgreSQL range |
-| Duration baseline | 1,000 ms | 500 ms | Sweet spot for discrimination |
-| Rows baseline | 100,000 | 10,000 | Realistic result sets |
-
----
-
-## 🚀 Usage
-
-### Running a Query Analysis
-1. Enter SQL query in editor
-2. Select target database
-3. Configure hardware (auto-detected by default)
-4. Click "Analyze Query" (Ctrl+Enter)
-
-### Interpreting Results
-- **Score 90+**: Excellent - Deploy immediately
-- **Score 70-89**: Good - Acceptable performance
-- **Score 50-69**: Moderate - Consider optimization
-- **Score 25-49**: Poor - Optimization recommended
-- **Score 0-24**: Critical - Major inefficiencies detected
-
-### Configuration Parameters
-All parameters are configurable per-analysis and stored in history for reproducibility:
-- Hardware: CPU cores, RAM, utilization, power per core, PUE
-- Regional: Grid carbon intensity
-- Hardware lifecycle: Total embodied carbon, lifespan, resource ratio
-
----
-
-## 📋 Project Roadmap
-
-| Phase | Status | Features |
-|-------|--------|----------|
-| **Phase 1** | ✅ Complete | Carbon estimation, sustainability scoring, tier classification |
-| **Phase 2** | 🔄 Planned | Query optimization suggestions |
-| **Phase 3** | 🔄 Planned | Advanced evaluation & grading metrics |
-| **Phase 4** | 🔄 Planned | Multi-database support (MySQL, Oracle, etc.) |
-
----
-
-## 📚 References
-
-- **Green Algorithms 2021**: "Quantifying the carbon emissions of machine learning" - Lannelongue et al.
-- **ISO/IEC 21031:2024**: Environmental information - Quantification of lifecycle greenhouse gas emissions for services
-- **PostgreSQL**: Query planner cost model documentation
-
----
-
-## 🛠️ Development
-
-### Backend
-```bash
-cd backend
-npm install
-npm start
-# Runs on http://localhost:3001
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-# Runs on http://localhost:5173
-```
-
-### Environment Variables (.env)
-```
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=postgres
@@ -1498,6 +755,675 @@ PORT=3001
 CORS_ORIGIN=http://localhost:5173
 ```
 
+**3. Initialize the QueryCarbon history table:**
+
+```bash
+cd backend
+npm start
+# The server auto-creates the querycarbon_history table on first start
+```
+
+**4. Start both servers:**
+
+```bash
+# Terminal 1 — Backend
+cd backend && npm start
+
+# Terminal 2 — Frontend
+cd frontend && npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+**5. (Optional) Install hypopg for cost simulation:**
+
+```sql
+-- Ubuntu/Debian
+sudo apt install postgresql-16-hypopg
+
+-- Then in psql (run for each database you want to analyze)
+CREATE EXTENSION hypopg;
+```
+
 ---
 
-**Status**: Phase 1 Complete - Production Ready
+## API Documentation
+
+### Base URL
+
+```
+http://localhost:3001/api
+```
+
+---
+
+### POST /api/analyze
+
+Run a SQL query and compute its carbon footprint.
+
+**Request:**
+```json
+{
+  "sql": "SELECT * FROM customer WHERE active = 1",
+  "database": "pagila",
+  "cpuCores": 8,
+  "powerPerCore": 12,
+  "cpuUtilization": 0.65,
+  "ramGb": 32,
+  "pue": 1.3,
+  "gridIntensity": 442
+}
+```
+
+**Response (200):**
+```json
+{
+  "query_id": 42,
+  "database": "pagila",
+  "row_count": 584,
+  "actual_runtime_ms": 12.4,
+  "energy_kwh": 0.0000048,
+  "operational_emissions_gco2": 0.0021,
+  "embodied_emissions_gco2": 0.000004,
+  "total_emissions_gco2": 0.0021,
+  "sci_gco2eq_per_query": 0.0021,
+  "sustainability_score": 85,
+  "classification": "GOOD"
+}
+```
+
+---
+
+### POST /api/optimize-query
+
+Run the three-track optimizer on a previously analyzed query.
+
+**Request:**
+```json
+{ "query_id": 42 }
+```
+
+**Response (200):**
+```json
+{
+  "findings": [
+    {
+      "pattern_id": "P1",
+      "track": "explain_analysis",
+      "table": "payment",
+      "severity": "high",
+      "simulation": "simulated",
+      "suggestion": "Add a B-tree index on the filter column(s) (amount) on table \"payment\"",
+      "index_ddl": "CREATE INDEX ON payment (amount)",
+      "cost_before": 14442.15,
+      "cost_after": 512.3,
+      "cost_delta": -13929.85,
+      "sci_delta": -0.061
+    },
+    {
+      "rule_id": "R8",
+      "track": "sql_pattern",
+      "severity": "high",
+      "suggestion": "Avoid leading wildcards (LIKE '%...'). Use a trailing wildcard for prefix search..."
+    }
+  ],
+  "total_findings": 2,
+  "hypopg_available": true,
+  "total_sci_delta_estimated": -0.061
+}
+```
+
+---
+
+### GET /api/history
+
+```
+GET /api/history?limit=50&offset=0&search=SELECT&classification=POOR&days=30
+```
+
+---
+
+### GET /api/history/:id
+
+Fetch a single history record by ID (used by QueryDetail page).
+
+---
+
+### GET /api/databases
+
+Returns a list of all accessible PostgreSQL databases.
+
+---
+
+### GET /api/dashboard?days=30
+
+Returns aggregate stats, daily trend, classification distribution, and recent queries.
+
+---
+
+### GET /api/history/export?days=30
+
+Returns a CSV download of the history within the given window.
+
+---
+
+## Pagila Test Queries
+
+The [Pagila database](https://github.com/devrimgunduz/pagila) is a PostgreSQL sample database based on a DVD rental store. Use it to verify that the optimizer is working correctly. Install it from the link above, then select `pagila` as the target database in QueryCarbon.
+
+The queries below are grouped by the rule or pattern they are designed to trigger. For each group there is an **inefficient** version (should trigger the rule) and an **efficient** version (should produce fewer or no findings).
+
+---
+
+### P1 — Sequential Scan with Filter
+
+**Inefficient — triggers P1 (no index on `amount`):**
+```sql
+SELECT payment_id, customer_id, amount
+FROM payment
+WHERE amount > 9.00;
+```
+Expected findings: `P1` (Seq Scan on `payment`, filter on `amount`). If hypopg is installed, expect a simulated `CREATE INDEX ON payment (amount)` with a cost delta.
+
+**Efficient — after creating the index:**
+```sql
+CREATE INDEX idx_payment_amount ON payment (amount);
+
+SELECT payment_id, customer_id, amount
+FROM payment
+WHERE amount > 9.00;
+```
+Expected findings: none for P1 (planner uses index scan).
+
+---
+
+### P2 — Function on Filter Column
+
+**Inefficient — triggers P2 (function call prevents index use):**
+```sql
+SELECT customer_id, email
+FROM customer
+WHERE lower(email) = 'mary.smith@sakilacustomer.org';
+```
+Expected findings: `P2` — functional index suggestion: `CREATE INDEX ON customer (lower(email))`.
+
+**Efficient — use a functional index:**
+```sql
+CREATE INDEX idx_customer_email_lower ON customer (lower(email));
+
+SELECT customer_id, email
+FROM customer
+WHERE lower(email) = 'mary.smith@sakilacustomer.org';
+```
+
+---
+
+### P3 — Sort Without Index
+
+**Inefficient — triggers P3 (sorting `return_date` with no supporting index):**
+```sql
+SELECT rental_id, customer_id, return_date
+FROM rental
+ORDER BY return_date DESC
+LIMIT 25;
+```
+Expected findings: `P3` — suggestion to index `return_date`.
+
+**Efficient — with index:**
+```sql
+CREATE INDEX idx_rental_return_date ON rental (return_date DESC);
+
+SELECT rental_id, customer_id, return_date
+FROM rental
+ORDER BY return_date DESC
+LIMIT 25;
+```
+
+---
+
+### P5 — Bad Cardinality Estimate
+
+**Triggers P5 (stale statistics cause huge plan/actual row divergence):**
+```sql
+-- Run this after bulk-loading data or after TRUNCATE + INSERT without ANALYZE
+SELECT f.film_id, f.title, COUNT(r.rental_id) AS rentals
+FROM film f
+JOIN inventory i ON f.film_id = i.film_id
+JOIN rental r ON i.inventory_id = r.inventory_id
+GROUP BY f.film_id, f.title
+ORDER BY rentals DESC
+LIMIT 10;
+```
+If statistics are fresh, P5 may not fire. To force stale stats: bulk-insert rows then analyze without running `ANALYZE`.
+
+**Fix (run then re-analyze the query):**
+```sql
+ANALYZE film;
+ANALYZE inventory;
+ANALYZE rental;
+```
+
+---
+
+### P6 — CTE Materialization Fence
+
+**Inefficient — CTE blocks predicate pushdown (triggers P6):**
+```sql
+WITH active_customers AS (
+  SELECT customer_id, first_name, last_name, store_id
+  FROM customer
+  WHERE activebool = true
+)
+SELECT ac.customer_id, ac.first_name, r.rental_date
+FROM active_customers ac
+JOIN rental r ON ac.customer_id = r.customer_id
+WHERE r.rental_date > '2005-07-01';
+```
+Expected findings: `P6` — CTE `active_customers` is materialized as a fence.
+
+**Efficient — inline the CTE or add NOT MATERIALIZED:**
+```sql
+WITH active_customers AS NOT MATERIALIZED (
+  SELECT customer_id, first_name, last_name, store_id
+  FROM customer
+  WHERE activebool = true
+)
+SELECT ac.customer_id, ac.first_name, r.rental_date
+FROM active_customers ac
+JOIN rental r ON ac.customer_id = r.customer_id
+WHERE r.rental_date > '2005-07-01';
+```
+
+---
+
+### R1 — NOT IN with Subquery
+
+**Inefficient — triggers R1:**
+```sql
+SELECT customer_id, first_name, last_name
+FROM customer
+WHERE customer_id NOT IN (
+  SELECT customer_id FROM rental
+);
+```
+Expected findings: `R1` (high severity). Click "Apply Fix" — the editor rewrites this to a LEFT JOIN anti-join using table/column names extracted from your SQL.
+
+**Efficient — LEFT JOIN anti-join:**
+```sql
+SELECT c.customer_id, c.first_name, c.last_name
+FROM customer c
+LEFT JOIN rental r ON c.customer_id = r.customer_id
+WHERE r.customer_id IS NULL;
+```
+
+---
+
+### R2 — Correlated NOT EXISTS
+
+**Inefficient — triggers R2:**
+```sql
+SELECT f.film_id, f.title
+FROM film f
+WHERE NOT EXISTS (
+  SELECT 1 FROM inventory i WHERE i.film_id = f.film_id
+);
+```
+Expected findings: `R2` (medium severity).
+
+**Efficient — LEFT JOIN anti-join:**
+```sql
+SELECT f.film_id, f.title
+FROM film f
+LEFT JOIN inventory i ON f.film_id = i.film_id
+WHERE i.inventory_id IS NULL;
+```
+
+---
+
+### R3 — SELECT * in Subquery
+
+**Inefficient — triggers R3:**
+```sql
+SELECT customer_id, first_name
+FROM customer
+WHERE customer_id IN (
+  SELECT * FROM (
+    SELECT customer_id FROM payment WHERE amount > 8
+  ) sub
+);
+```
+Expected findings: `R3` (medium severity).
+
+**Efficient — explicit column list:**
+```sql
+SELECT customer_id, first_name
+FROM customer
+WHERE customer_id IN (
+  SELECT customer_id FROM payment WHERE amount > 8
+);
+```
+
+---
+
+### R4 — OR Equality on Same Column
+
+**Inefficient — triggers R4:**
+```sql
+SELECT film_id, title, rating
+FROM film
+WHERE rating = 'PG'
+   OR rating = 'G'
+   OR rating = 'PG-13';
+```
+Expected findings: `R4` (low severity). Click "Apply Fix" — the editor rewrites to `rating IN ('PG', 'G', 'PG-13')` automatically.
+
+**Efficient — IN clause:**
+```sql
+SELECT film_id, title, rating
+FROM film
+WHERE rating IN ('PG', 'G', 'PG-13');
+```
+
+---
+
+### R5 — SELECT DISTINCT Masking Bad JOIN
+
+**Inefficient — triggers R5 (DISTINCT hides fanout from the rental join):**
+```sql
+SELECT DISTINCT c.customer_id, c.first_name, c.last_name
+FROM customer c
+JOIN rental r ON c.customer_id = r.customer_id;
+```
+Expected findings: `R5` (medium severity). "Apply Fix" replaces `DISTINCT` with an explicit `GROUP BY`.
+
+**Efficient — explicit GROUP BY:**
+```sql
+SELECT c.customer_id, c.first_name, c.last_name
+FROM customer c
+JOIN rental r ON c.customer_id = r.customer_id
+GROUP BY c.customer_id, c.first_name, c.last_name;
+```
+
+---
+
+### R6 — Large OFFSET Deep Pagination
+
+**Inefficient — triggers R6 (OFFSET 5000 > threshold of 1000):**
+```sql
+SELECT film_id, title, rental_rate
+FROM film
+ORDER BY film_id
+LIMIT 10 OFFSET 5000;
+```
+Expected findings: `R6` (high severity, OFFSET > 10,000 threshold). "Apply Fix" removes the OFFSET and inserts a keyset `WHERE film_id > :last_seen_value` using the ORDER BY column.
+
+**Efficient — keyset pagination:**
+```sql
+SELECT film_id, title, rental_rate
+FROM film
+WHERE film_id > 5000        -- last film_id from the previous page
+ORDER BY film_id
+LIMIT 10;
+```
+
+---
+
+### R7 — Implicit Type Coercion
+
+**Inefficient — triggers R7 (`customer_id` is integer but compared to string):**
+```sql
+SELECT customer_id, first_name, last_name
+FROM customer
+WHERE customer_id = '42';
+```
+Expected findings: `R7` (medium severity). "Apply Fix" strips the quotes: `customer_id = 42`.
+
+**Efficient — matching literal type:**
+```sql
+SELECT customer_id, first_name, last_name
+FROM customer
+WHERE customer_id = 42;
+```
+
+---
+
+### R8 — Leading Wildcard LIKE
+
+**Inefficient — triggers R8 (leading `%` prevents index use):**
+```sql
+SELECT title, description
+FROM film
+WHERE description LIKE '%robot%';
+```
+Expected findings: `R8` (high severity). "Apply Fix" converts the leading wildcard to trailing: `LIKE 'robot%'`.
+
+**Efficient — trailing wildcard (prefix search):**
+```sql
+SELECT title, description
+FROM film
+WHERE description LIKE 'A%';
+```
+
+**Efficient — arbitrary substring (using pg_trgm):**
+```sql
+-- First: CREATE EXTENSION pg_trgm;
+-- CREATE INDEX ON film USING gin(description gin_trgm_ops);
+SELECT title, description
+FROM film
+WHERE description ILIKE '%robot%';
+```
+
+---
+
+### R9 — HAVING Without GROUP BY
+
+**Inefficient — triggers R9:**
+```sql
+SELECT COUNT(*)
+FROM payment
+HAVING SUM(amount) > 1000;
+```
+Expected findings: `R9` (medium severity). "Apply Fix" replaces `HAVING` with `WHERE`.
+
+**Efficient — use WHERE for row-level filtering:**
+```sql
+SELECT COUNT(*)
+FROM payment
+WHERE amount > 5;
+```
+
+---
+
+### R10 — Correlated Subquery in SELECT List
+
+**Inefficient — triggers R10 (subquery runs once per customer row):**
+```sql
+SELECT
+  c.customer_id,
+  c.first_name,
+  c.last_name,
+  (SELECT COUNT(*) FROM rental r WHERE r.customer_id = c.customer_id) AS total_rentals,
+  (SELECT SUM(amount) FROM payment p WHERE p.customer_id = c.customer_id) AS total_spent
+FROM customer c
+ORDER BY total_spent DESC
+LIMIT 20;
+```
+Expected findings: `R10` (high severity). "Apply Fix" generates a LEFT JOIN template.
+
+**Efficient — pre-aggregate then join:**
+```sql
+SELECT
+  c.customer_id,
+  c.first_name,
+  c.last_name,
+  COALESCE(r.total_rentals, 0) AS total_rentals,
+  COALESCE(p.total_spent, 0)   AS total_spent
+FROM customer c
+LEFT JOIN (
+  SELECT customer_id, COUNT(*) AS total_rentals
+  FROM rental
+  GROUP BY customer_id
+) r ON c.customer_id = r.customer_id
+LEFT JOIN (
+  SELECT customer_id, SUM(amount) AS total_spent
+  FROM payment
+  GROUP BY customer_id
+) p ON c.customer_id = p.customer_id
+ORDER BY total_spent DESC
+LIMIT 20;
+```
+
+---
+
+### R11 — COUNT(column) vs COUNT(*)
+
+**Inefficient — triggers R11:**
+```sql
+SELECT COUNT(rental_id) FROM rental;
+```
+Expected findings: `R11` (low severity). "Apply Fix" rewrites to `COUNT(*)`.
+
+**Efficient:**
+```sql
+SELECT COUNT(*) FROM rental;
+```
+
+---
+
+### R12 — UNION Instead of UNION ALL
+
+**Inefficient — triggers R12 (deduplication pass is unnecessary here):**
+```sql
+SELECT first_name, last_name, 'customer' AS role FROM customer
+UNION
+SELECT first_name, last_name, 'staff'    AS role FROM staff;
+```
+Expected findings: `R12` (medium severity). "Apply Fix" replaces `UNION` with `UNION ALL` and prepends a safety warning.
+
+**Efficient — when rows are guaranteed disjoint:**
+```sql
+SELECT first_name, last_name, 'customer' AS role FROM customer
+UNION ALL
+SELECT first_name, last_name, 'staff'    AS role FROM staff;
+```
+
+---
+
+### Multi-Rule Query (Several Rules at Once)
+
+Paste this into the analyzer to see multiple findings fire together:
+
+```sql
+-- This query triggers: R4, R8, R11, R12, and possibly P1/P3 depending on indexes
+SELECT COUNT(rental_id)
+FROM rental
+WHERE return_date IS NOT NULL
+  AND customer_id = '1' OR customer_id = '2' OR customer_id = '3'
+UNION
+SELECT COUNT(staff_id)
+FROM staff
+WHERE first_name LIKE '%Mike%';
+```
+
+Expected findings (minimum): R4 (OR → IN), R7 (string literal for customer_id), R8 (leading wildcard), R11 (COUNT(col)), R12 (UNION → UNION ALL).
+
+---
+
+### Comprehensive Reporting Query (Efficient Reference)
+
+This query is well-written — it should score GOOD or EXCELLENT and produce zero or very few optimizer findings:
+
+```sql
+SELECT
+  f.title,
+  c.name                          AS category,
+  COUNT(r.rental_id)              AS total_rentals,
+  SUM(p.amount)                   AS total_revenue,
+  ROUND(AVG(p.amount)::numeric, 2) AS avg_payment
+FROM film f
+JOIN film_category fc ON f.film_id = fc.film_id
+JOIN category      c  ON fc.category_id = c.category_id
+JOIN inventory     i  ON f.film_id = i.film_id
+JOIN rental        r  ON i.inventory_id = r.inventory_id
+JOIN payment       p  ON r.rental_id = p.rental_id
+WHERE r.rental_date >= '2005-05-01'
+  AND r.rental_date <  '2005-09-01'
+GROUP BY f.title, c.name
+ORDER BY total_revenue DESC
+LIMIT 20;
+```
+
+---
+
+## Troubleshooting
+
+### "relation does not exist"
+
+1. Verify your database is selected in the dropdown (e.g. `pagila`).
+2. Check `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` in `backend/.env`.
+3. Run `\dt` in psql to confirm tables exist.
+
+### Optimizer shows no findings
+
+1. The query may be genuinely efficient.
+2. If you expect EXPLAIN findings (P1–P10), ensure the query is a SELECT — `EXPLAIN ANALYZE` only runs for SELECT statements.
+3. Check backend console for `[Optimize]` log lines showing track results.
+
+### hypopg_available: false
+
+The `hypopg` extension is not installed in the selected database. Index DDL suggestions are still shown — only the cost delta simulation is skipped. Install with:
+```sql
+CREATE EXTENSION hypopg;
+```
+
+### All queries score the same
+
+The baselines may be too loose for your workload. Adjust in `backend/.env`:
+```bash
+BASELINE_COST=2000       # tighten for OLTP-heavy workloads
+BASELINE_DURATION=200    # tighten for fast-query applications
+```
+
+### Frontend shows no Optimization tab
+
+The Optimization tab appears automatically after analysis only if `query_id` is returned by `/api/analyze`. Ensure the backend is running and responding — check the browser Network tab for the `/api/analyze` response.
+
+---
+
+## References
+
+### Scientific Papers
+
+- Lannelongue et al. (2021). "Quantifying the carbon emissions of machine learning." *JMLR*. arXiv:2007.10883. https://arxiv.org/abs/2007.10883
+- ISO/IEC 21031:2024 — Environmental Information: Quantification of Embodied Carbon of Products. https://www.iso.org/standard/69484.html
+
+### Data Sources
+
+- IEA World Energy Outlook 2023: https://www.iea.org/reports/world-energy-outlook-2023
+- EPA eGRID 2023: https://www.epa.gov/egrid
+- Ember Global Electricity Review: https://ember-climate.org
+- Boavizta Hardware Impact Database: https://github.com/Boavizta/boavizta-data-model
+
+### Standards & Frameworks
+
+- Green Software Foundation — Software Carbon Intensity Spec: https://github.com/Green-Software-Foundation/sci
+- Greenhouse Gas Protocol Corporate Standard: https://ghgprotocol.org/corporate-standard
+- PostgreSQL EXPLAIN documentation: https://www.postgresql.org/docs/current/using-explain.html
+- HypoPG extension: https://hypopg.readthedocs.io
+- Pagila sample database: https://github.com/devrimgunduz/pagila
+
+---
+
+## Project Roadmap
+
+| Phase | Status | Features |
+|-------|--------|----------|
+| Phase 1 | Complete | Carbon estimation, SCI scoring, 5-tier classification |
+| Phase 2 | Complete | Inline optimization UI, QueryDetail page, Reports integration |
+| Phase 3 | Complete | EXPLAIN analysis (P1–P10), HypoPG simulation, SQL rules (R1–R12), inline SQL rewrites |
+| Phase 4 | Planned | MySQL/Oracle support, multi-DB comparison |
+
+---
+
+**QueryCarbon · Phase 3 · v1.0.0**  
+*Measuring and reducing the carbon footprint of SQL queries.*

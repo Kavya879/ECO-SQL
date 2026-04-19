@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getHistory, clearHistory } from '../api/api.js';
 import { fmtGco2, fmtRuntime, fmtTimeAgo, classificationBadge } from '../utils/format.js';
 
@@ -11,6 +12,7 @@ export default function ReportsPage() {
   const [classification, setClassification] = useState('');
   const [days, setDays] = useState(30);
   const [page, setPage] = useState(0);
+  const navigate = useNavigate();
   const [copiedId, setCopiedId] = useState(null);
   const limit = 12;
 
@@ -32,13 +34,15 @@ export default function ReportsPage() {
     window.location.href = `/api/history/export?days=${days}`;
   };
 
-  const copyQueryToEditor = (queryText, queryId) => {
-    // Store in sessionStorage for cross-page communication
+  const openInEditor = (queryText, queryId) => {
     sessionStorage.setItem('queryToCopy', queryText);
-    // Navigate to analyze page
-    window.location.href = '/analyze';
     setCopiedId(queryId);
     setTimeout(() => setCopiedId(null), 2000);
+    navigate('/analyze');
+  };
+
+  const viewSuggestions = (queryId) => {
+    navigate(`/query/${queryId}`);
   };
 
   const handleClearHistory = async () => {
@@ -137,7 +141,7 @@ export default function ReportsPage() {
                   <th>Tables</th>
                   <th>Classification</th>
                   <th>Timestamp</th>
-                  <th style={{ width: 60 }}>Action</th>
+                  <th style={{ width: 96 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -169,19 +173,35 @@ export default function ReportsPage() {
                       </td>
                       <td><span className={`badge ${classificationBadge(cls)}`}>{cls}</span></td>
                       <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtTimeAgo(row.created_at)}</td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => copyQueryToEditor(row.query_text, row.id)}
-                          title="Copy query to editor"
-                          style={{
-                            fontSize: 11,
-                            padding: '4px 6px',
-                            color: isCopied ? 'var(--green)' : 'var(--text-secondary)',
-                          }}
-                        >
-                          {isCopied ? '✓' : '→'}
-                        </button>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                          {/* Open in Analyze editor */}
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => openInEditor(row.query_text, row.id)}
+                            title="Open in editor"
+                            style={{
+                              fontSize: 11,
+                              padding: '4px 8px',
+                              color: isCopied ? 'var(--green)' : 'var(--text-secondary)',
+                            }}
+                          >
+                            {isCopied ? '✓' : '← Edit'}
+                          </button>
+                          {/* View optimization suggestions */}
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => viewSuggestions(row.id)}
+                            title="View optimization suggestions"
+                            style={{
+                              fontSize: 11,
+                              padding: '4px 8px',
+                              color: 'var(--amber)',
+                            }}
+                          >
+                            ⚡ Tips
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

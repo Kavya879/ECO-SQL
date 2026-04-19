@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import AnalyzePage from './pages/AnalyzePage.jsx';
 import ReportsPage from './pages/ReportsPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import QueryDetail from './pages/QueryDetail.jsx';
 
 function Layout() {
   const location = useLocation();
@@ -39,7 +40,7 @@ function Layout() {
         </nav>
 
         <div style={{ flex: 1 }} />
-        <div className="sidebar-footer">Phase 1 · v1.0.0</div>
+        <div className="sidebar-footer">Phase 3 · v1.0.0</div>
       </aside>
 
       <main className="main-content">
@@ -48,6 +49,7 @@ function Layout() {
           <Route path="/analyze" element={<AnalyzePage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/query/:id" element={<QueryDetail />} />
         </Routes>
       </main>
     </div>

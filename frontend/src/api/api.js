@@ -15,4 +15,10 @@ export const getDashboard = (params) => api.get('/dashboard', { params }).then(r
 export const exportHistoryCsv = () => `${api.defaults.baseURL}/history/export`;
 export const clearHistory = () => api.delete('/history').then(r => r.data);
 
+export const optimizeQuery = (queryId) =>
+  api.post('/optimize-query', { query_id: queryId }).then(r => r.data);
+
+export const getHistoryById = (id) =>
+  api.get(`/history/${id}`).then(r => r.data);
+
 export default api;

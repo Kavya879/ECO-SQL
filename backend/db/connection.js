@@ -217,4 +217,60 @@ async function clearHistory(days) {
   }
 }
 
-module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getDashboardStats, clearHistory };
+/**
+ * Fetch a single history record by primary key.
+ */
+async function getQueryById(id) {
+  const client = await defaultPool.connect();
+  try {
+    const result = await client.query(
+      `SELECT id, query_text, database_name, sci, classification, runtime_s, created_at
+       FROM querycarbon_history WHERE id = $1`,
+      [parseInt(id, 10)]
+    );
+    return result.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Run EXPLAIN (FORMAT JSON) on a SQL query against a named database.
+ * For SELECT queries, also adds ANALYZE to get actual row counts.
+ * EXPLAIN ANALYZE on a SELECT is safe — it does not write any data.
+ *
+ * @param {string} dbName - Target database name
+ * @param {string} sql - SQL query text
+ * @returns {Array} Parsed EXPLAIN JSON (the QUERY PLAN array)
+ */
+async function getExplainPlan(dbName, sql) {
+  const pool = getPoolForDatabase(dbName);
+  const client = await pool.connect();
+  try {
+    const isSelect = /^\s*SELECT\b/i.test(sql.trim());
+    const explainSql = isSelect
+      ? `EXPLAIN (FORMAT JSON, ANALYZE) ${sql}`
+      : `EXPLAIN (FORMAT JSON) ${sql}`;
+
+    const result = await client.query(explainSql);
+    return result.rows[0]?.['QUERY PLAN'];
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+module.exports = {
+  defaultPool,
+  getPoolForDatabase,
+  listDatabases,
+  listTables,
+  executeQueryOnDatabase,
+  ensureHistoryTable,
+  saveToHistory,
+  getHistory,
+  getDashboardStats,
+  clearHistory,
+  getQueryById,
+  getExplainPlan,
+};
