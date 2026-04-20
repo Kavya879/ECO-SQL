@@ -9,8 +9,135 @@ function normalizeSql(sql) {
   return String(sql || '').replace(/\s+/g, ' ').trim();
 }
 
+const ISSUE_HELP = {
+  'SELECT * detected': {
+    laymanReason: 'You are asking the database to send every column, even data you do not need.',
+    whatToDo: 'Pick only the columns your screen/report actually uses.',
+    example: {
+      before: 'SELECT * FROM orders WHERE customer_id = 42;',
+      after: 'SELECT order_id, order_date, total_amount FROM orders WHERE customer_id = 42;'
+    }
+  },
+  'Missing WHERE clause': {
+    laymanReason: 'Without a filter, the database often reads the whole table.',
+    whatToDo: 'Add a WHERE condition to narrow results to only relevant rows.',
+    example: {
+      before: 'SELECT customer_id, total_amount FROM orders;',
+      after: "SELECT customer_id, total_amount FROM orders WHERE order_date >= '2026-01-01';"
+    }
+  },
+  'Missing LIMIT clause': {
+    laymanReason: 'Returning too many rows at once can make pages slow and heavy.',
+    whatToDo: 'Use LIMIT for previews/pages where full data is not required.',
+    example: {
+      before: 'SELECT order_id, total_amount FROM orders ORDER BY created_at DESC;',
+      after: 'SELECT order_id, total_amount FROM orders ORDER BY created_at DESC LIMIT 100;'
+    }
+  },
+  'Potential missing indexes on filter/join columns': {
+    laymanReason: 'The database may be searching row-by-row because key columns are not indexed.',
+    whatToDo: 'Add indexes on columns used often in WHERE and JOIN.',
+    example: {
+      before: '-- Slow lookup without index\nSELECT * FROM orders WHERE customer_id = 42;',
+      after: '-- Add index once\nCREATE INDEX idx_orders_customer_id ON orders(customer_id);'
+    }
+  },
+  'Leading wildcard LIKE detected': {
+    laymanReason: "Searching with % at the start makes normal indexes less useful.",
+    whatToDo: 'Avoid leading % when possible, or use specialized text indexes.',
+    example: {
+      before: "SELECT * FROM customers WHERE name LIKE '%son';",
+      after: "SELECT * FROM customers WHERE name LIKE 'son%';"
+    }
+  },
+  'Function on column in predicate': {
+    laymanReason: 'Applying functions in WHERE can force extra work for each row.',
+    whatToDo: 'Compare raw columns directly, or create an expression index if needed.',
+    example: {
+      before: "SELECT * FROM users WHERE LOWER(email) = 'a@b.com';",
+      after: "SELECT * FROM users WHERE email = 'a@b.com';"
+    }
+  },
+  'ORDER BY may be unindexed': {
+    laymanReason: 'Sorting big datasets is expensive if sort columns are not indexed.',
+    whatToDo: 'Add an index that matches your common WHERE + ORDER BY pattern.',
+    example: {
+      before: 'SELECT * FROM orders WHERE customer_id = 42 ORDER BY created_at DESC;',
+      after: 'CREATE INDEX idx_orders_customer_created ON orders(customer_id, created_at DESC);'
+    }
+  },
+  'Possible Cartesian join': {
+    laymanReason: 'A JOIN without match condition can explode row count and make queries extremely slow.',
+    whatToDo: 'Add ON/USING for every JOIN so rows are matched correctly.',
+    example: {
+      before: 'SELECT * FROM customers c JOIN orders o;',
+      after: 'SELECT * FROM customers c JOIN orders o ON o.customer_id = c.customer_id;'
+    }
+  },
+  'DISTINCT detected': {
+    laymanReason: 'DISTINCT removes duplicates but can add heavy sorting/hash work.',
+    whatToDo: 'Keep DISTINCT only if duplicates are truly a business problem.',
+    example: {
+      before: 'SELECT DISTINCT customer_id FROM orders;',
+      after: 'SELECT customer_id FROM orders GROUP BY customer_id;'
+    }
+  },
+  'Repeated subquery detected': {
+    laymanReason: 'Running the same subquery many times repeats work.',
+    whatToDo: 'Move repeated logic into a CTE (WITH) and reuse it.',
+    example: {
+      before: 'SELECT (SELECT COUNT(*) FROM orders WHERE customer_id = c.id) FROM customers c;',
+      after: 'WITH customer_orders AS (SELECT customer_id, COUNT(*) cnt FROM orders GROUP BY customer_id) SELECT co.cnt FROM customers c LEFT JOIN customer_orders co ON co.customer_id = c.id;'
+    }
+  },
+  'Sequential scan in EXPLAIN plan': {
+    laymanReason: 'The plan shows the database scanning many rows sequentially.',
+    whatToDo: 'Add/select better indexes and tighter filters.',
+    example: {
+      before: '-- EXPLAIN shows Seq Scan on large table',
+      after: '-- Add index for filter columns, then re-run EXPLAIN'
+    }
+  },
+  'High-cost or high-row plan node': {
+    laymanReason: 'Some parts of the plan are processing too many rows or too much work.',
+    whatToDo: 'Reduce selected data, add filters, and index selective predicates.',
+    example: {
+      before: 'SELECT * FROM events ORDER BY created_at DESC;',
+      after: "SELECT event_id, created_at FROM events WHERE created_at >= NOW() - INTERVAL '30 days' ORDER BY created_at DESC LIMIT 500;"
+    }
+  },
+  'No major anti-pattern detected': {
+    laymanReason: 'No obvious SQL anti-pattern was detected in this quick rule check.',
+    whatToDo: 'Keep monitoring with EXPLAIN ANALYZE on real production-size data.',
+    example: {
+      before: '-- Current query looks reasonable',
+      after: '-- Validate with EXPLAIN (ANALYZE, BUFFERS)'
+    }
+  },
+};
+
+function getIssueHelp(issue, reason, suggestion) {
+  const help = ISSUE_HELP[issue];
+  if (help) {
+    return help;
+  }
+  return {
+    laymanReason: reason,
+    whatToDo: suggestion,
+    example: null,
+  };
+}
+
 function pushIssue(issues, issue, reason, suggestion) {
-  issues.push({ issue, reason, suggestion });
+  const help = getIssueHelp(issue, reason, suggestion);
+  issues.push({
+    issue,
+    reason,
+    suggestion,
+    laymanReason: help.laymanReason,
+    whatToDo: help.whatToDo,
+    example: help.example,
+  });
 }
 
 function unique(arr) {

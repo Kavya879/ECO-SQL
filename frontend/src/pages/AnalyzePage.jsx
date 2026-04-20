@@ -30,6 +30,8 @@ const DEFAULTS = {
   tor: 11000,
 };
 
+const SQL_DRAFT_KEY = 'analyzeSqlDraft';
+
 function ResultMetric({ label, value, unit, color }) {
   return (
     <div className="result-metric">
@@ -85,6 +87,11 @@ export default function AnalyzePage() {
     if (copiedQuery) {
       setSql(copiedQuery);
       sessionStorage.removeItem('queryToCopy');
+    } else {
+      const savedDraft = sessionStorage.getItem(SQL_DRAFT_KEY);
+      if (savedDraft) {
+        setSql(savedDraft);
+      }
     }
     
     getDatabases().then(d => {
@@ -110,6 +117,14 @@ export default function AnalyzePage() {
       // Fall back to defaults if hardware detection fails
     });
   }, []);
+
+  useEffect(() => {
+    if (sql) {
+      sessionStorage.setItem(SQL_DRAFT_KEY, sql);
+    } else {
+      sessionStorage.removeItem(SQL_DRAFT_KEY);
+    }
+  }, [sql]);
 
   const lineCount = sql.split('\n').length;
 
@@ -237,7 +252,7 @@ export default function AnalyzePage() {
                 >
                   {loading ? <><span className="spinner" /> Analyzing...</> : <>⚡ Analyze Query</>}
                 </button>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setSql(''); setResult(null); setError(null); }} title="Clear editor">◎ Clear</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setSql(''); sessionStorage.removeItem(SQL_DRAFT_KEY); setResult(null); setError(null); }} title="Clear editor">◎ Clear</button>
                 <button className="btn btn-secondary btn-sm" onClick={() => setSql(SAMPLE_QUERY)} title="Load example query">⊡ Load Sample</button>
               </div>
               {queryMeta && (
@@ -404,8 +419,21 @@ export default function AnalyzePage() {
                       {result.optimization.issues.map((it, idx) => (
                         <div key={`${it.issue}-${idx}`} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', background: 'var(--bg-secondary)' }}>
                           <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 4, fontWeight: 600 }}>{it.issue}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{it.reason}</div>
-                          <div style={{ fontSize: 11, color: 'var(--green)' }}>Fix: {it.suggestion}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Why this matters:</span> {it.laymanReason || it.reason}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: it.example ? 8 : 0 }}>
+                            <span style={{ color: 'var(--text-muted)' }}>What to do:</span> {it.whatToDo || it.suggestion}
+                          </div>
+                          {it.example && (
+                            <div style={{ display: 'grid', gap: 6 }}>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.7 }}>Example</div>
+                              <div style={{ fontSize: 10, color: 'var(--amber)' }}>Before</div>
+                              <pre style={{ margin: 0, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '8px 10px', overflowX: 'auto' }}>{it.example.before}</pre>
+                              <div style={{ fontSize: 10, color: 'var(--green)' }}>Better</div>
+                              <pre style={{ margin: 0, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--green)', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 6, padding: '8px 10px', overflowX: 'auto' }}>{it.example.after}</pre>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -480,7 +508,10 @@ export default function AnalyzePage() {
 
               {/* Runtime info */}
               <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
-                QID-{result.query_id} · Actual: <span title={`Measured time: ${result.actual_runtime_ms.toFixed(3)}ms`}>{result.actual_runtime_ms.toFixed(3)}ms</span>
+                QID-{result.query_id} · Analysis: <span title={`End-to-end analysis time: ${(result.analysis_runtime_ms ?? result.actual_runtime_ms).toFixed(3)}ms`}>{(result.analysis_runtime_ms ?? result.actual_runtime_ms).toFixed(3)}ms</span>
+                {typeof result.db_runtime_ms === 'number' && (
+                  <span title={`Database execution only: ${result.db_runtime_ms.toFixed(3)}ms`}> · DB: {result.db_runtime_ms.toFixed(3)}ms</span>
+                )}
                 {result.tables_involved?.length > 0 && ` · ${result.tables_involved.length} table ${result.tables_involved.length > 1 ? 'JOIN' : ''}`}
               </div>
             </>

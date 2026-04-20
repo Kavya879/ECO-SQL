@@ -154,7 +154,12 @@ export default function ReportsPage() {
                   </td></tr>
                 ) : data.rows.map(row => {
                   const cls = row.classification || 'SUSTAINABLE';
-                  const valColor = cls === 'SUSTAINABLE' ? 'var(--green)' : cls === 'MODERATE' ? 'var(--amber)' : 'var(--red)';
+                  const normalizedCls = String(cls).toUpperCase();
+                  const valColor = ['SUSTAINABLE', 'EXCELLENT', 'GOOD'].includes(normalizedCls)
+                    ? 'var(--green)'
+                    : normalizedCls === 'MODERATE'
+                      ? 'var(--amber)'
+                      : 'var(--red)';
                   const isCopied = copiedId === row.id;
                   return (
                     <tr key={row.id}>

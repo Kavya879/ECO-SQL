@@ -10,6 +10,7 @@ const { analyzeQuery: analyzeOptimization } = require('../services/queryOptimize
  */
 async function analyzeQuery(req, res) {
   try {
+    const analysisStart = process.hrtime.bigint();
     const { sql, database } = req.body;
 
     // Validate required SQL and database parameters
@@ -26,10 +27,8 @@ async function analyzeQuery(req, res) {
     // Execute the query and measure actual runtime
     let queryResult;
     try {
-      const startTime = Date.now();
       queryResult = await db.executeQueryOnDatabase(database, sql);
-      const totalTime = Date.now() - startTime;
-      console.log(`[QueryCarbon] ✓ Query executed on "${database}" in ${totalTime}ms | Runtime: ${queryResult.runtimeMs.toFixed(2)}ms | Rows: ${queryResult.rowCount} | Cost: ${queryResult.plannerCost}`);
+      console.log(`[QueryCarbon] ✓ Query executed on "${database}" | DB runtime: ${queryResult.runtimeMs.toFixed(2)}ms | Rows: ${queryResult.rowCount} | Cost: ${queryResult.plannerCost}`);
     } catch (dbErr) {
       console.error(`[QueryCarbon] ✗ Query execution failed on "${database}":`, dbErr.message);
       return res.status(400).json({
@@ -95,11 +94,14 @@ async function analyzeQuery(req, res) {
       pue_used: metrics.pue_used,
     };
 
+    const analysisRuntimeMs = Number(process.hrtime.bigint() - analysisStart) / 1_000_000;
+    const analysisRuntimeSeconds = analysisRuntimeMs / 1000;
+
     // Save to history
     const saved = await db.saveToHistory({
       query_text: sql,
       database_name: database,
-      runtime_s: runtimeSeconds,
+      runtime_s: analysisRuntimeSeconds,
       energy_kwh: metrics.energy_kwh,
       operational_emissions_gco2: metrics.operational_emissions_gco2eq,
       embodied_emissions_gco2: metrics.embodied_emissions_gco2eq,
@@ -119,8 +121,11 @@ async function analyzeQuery(req, res) {
       row_count: queryResult.rowCount,
       fields: queryResult.fields,
       results_preview: queryResult.rows.slice(0, 10),
+      analysis_runtime_ms: analysisRuntimeMs,
+      db_runtime_ms: queryResult.runtimeMs,
       actual_runtime_ms: queryResult.runtimeMs,
-      runtime_s: runtimeSeconds,
+      runtime_s: analysisRuntimeSeconds,
+      db_runtime_s: runtimeSeconds,
       optimization,
       ...responseMetrics,
     });
