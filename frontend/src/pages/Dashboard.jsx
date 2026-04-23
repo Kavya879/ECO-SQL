@@ -1,91 +1,131 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import { getDashboard } from '../api/api.js';
-import { fmtGco2, fmtRuntime, fmtTimeAgo, classificationBadge } from '../utils/format.js';
+import { fmtGco2, fmtRuntime, fmtTimeAgo } from '../utils/format.js';
 
 const DAYS_OPTIONS = [7, 30, 90];
 
-function GaugeChart({ value, max = 10 }) {
-  const r = 54;
-  const cx = 70, cy = 70;
-  const startAngle = Math.PI * 0.8;
-  const endAngle = Math.PI * 0.2;
-  const total = (2 * Math.PI) - (startAngle - endAngle);
-  const circumference = total * r;
-  const pct = Math.min(value / max, 1);
-  const offset = circumference * (1 - pct);
-  const color = value < 2 ? '#00ff88' : value < 5 ? '#f5a623' : '#ff4d4d';
+/* ─── Tier helpers ──────────────────────────────────────────── */
+function tierConfig(cls) {
+  const c = String(cls || '').toUpperCase();
+  if (c === 'EXCELLENT' || c === 'SUSTAINABLE') return { letter: 'A', cls: 'tier-excellent', score_cls: 'green' };
+  if (c === 'GOOD')     return { letter: 'B', cls: 'tier-good',     score_cls: '' };
+  if (c === 'MODERATE') return { letter: 'C', cls: 'tier-moderate', score_cls: 'amber' };
+  if (c === 'POOR')     return { letter: 'D', cls: 'tier-poor',     score_cls: 'red' };
+  if (c === 'CRITICAL' || c === 'HIGH IMPACT') return { letter: 'F', cls: 'tier-critical', score_cls: 'red' };
+  return { letter: '?', cls: 'tier-moderate', score_cls: '' };
+}
 
-  const polarToCart = (angle) => ({
-    x: cx + r * Math.cos(angle),
-    y: cy + r * Math.sin(angle),
-  });
-
-  const describeArc = (startA, endA) => {
-    const s = polarToCart(startA);
-    const e = polarToCart(endA);
-    const large = (endA - startA + 2 * Math.PI) % (2 * Math.PI) > Math.PI ? 1 : 0;
-    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
-  };
-
+/* ─── SQL syntax highlighter (simple keyword pass) ─────────── */
+function SqlSnippet({ sql = '' }) {
+  const keywords = /\b(SELECT|FROM|WHERE|JOIN|LEFT|INNER|OUTER|ON|GROUP BY|ORDER BY|HAVING|LIMIT|UNION|INSERT|UPDATE|DELETE|WITH|AS|AND|OR|NOT|IN|LIKE|COUNT|SUM|AVG|MAX|MIN|DISTINCT|CASE|WHEN|THEN|END|CROSS)\b/gi;
+  const parts = sql.split(keywords);
   return (
-    <svg width="140" height="90" viewBox="0 0 140 90">
-      <path d={describeArc(startAngle, startAngle + total)} fill="none" stroke="#1e2832" strokeWidth="8" strokeLinecap="round" />
-      <path
-        d={describeArc(startAngle, startAngle + total)}
-        fill="none" stroke={color} strokeWidth="8" strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        className="gauge-arc"
-      />
-      <text x={cx} y={cy - 4} textAnchor="middle" fill={color} fontSize="18" fontWeight="700" fontFamily="JetBrains Mono">{fmtGco2(value)}</text>
-      <text x={cx} y={cy + 12} textAnchor="middle" fill="#4a5568" fontSize="9" fontFamily="JetBrains Mono">gCO₂/query</text>
-    </svg>
+    <div className="sql-snippet">
+      {parts.map((part, i) =>
+        keywords.test(part)
+          ? <span key={i} className="sql-kw">{part}</span>
+          : part
+      )}
+    </div>
   );
 }
 
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{ background: '#1a2028', border: '1px solid #1e2832', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-        <div style={{ color: '#7a8a9a', marginBottom: 4 }}>{label}</div>
-        {payload.map(p => (
-          <div key={p.name} style={{ color: p.color, fontFamily: 'JetBrains Mono' }}>
-            {p.name === 'avg_gco2' ? 'Operational: ' : 'Baseline: '}
-            <strong>{parseFloat(p.value).toFixed(3)} gCO₂</strong>
+/* ─── Recharts Tooltip ──────────────────────────────────────── */
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: 'var(--bg-card)', border: '1px solid var(--border)',
+      borderRadius: 6, padding: '10px 14px', fontSize: 12,
+    }}>
+      <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.name} style={{ color: p.color, fontFamily: 'var(--font-mono)' }}>
+          {p.name === 'avg_gco2' ? 'Operational: ' : 'Baseline: '}
+          <strong>{parseFloat(p.value).toFixed(4)} gCO₂</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Donut chart (CSS conic-gradient) ──────────────────────── */
+const TIER_COLORS = [
+  { key: 'excellent', label: 'Excellent', color: '#00FF88' },
+  { key: 'good',      label: 'Good',      color: '#a5eeff' },
+  { key: 'moderate',  label: 'Moderate',  color: '#e5c364' },
+  { key: 'poor',      label: 'Poor',      color: '#ffb4ab' },
+  { key: 'critical',  label: 'Critical',  color: '#93000a' },
+];
+
+function TierDonut({ dist, total }) {
+  const safe = (v) => Math.max(0, parseFloat(v) || 0);
+
+  const vals = [
+    safe(dist?.sustainable_pct || dist?.excellent_pct || 45),
+    safe(dist?.good_pct || 25),
+    safe(dist?.moderate_pct || 15),
+    safe(dist?.poor_pct || 10),
+    safe(dist?.high_impact_pct || dist?.critical_pct || 5),
+  ];
+
+  let acc = 0;
+  const stops = vals.map((v, i) => {
+    const start = acc;
+    acc += v;
+    return `${TIER_COLORS[i].color} ${start}% ${acc}%`;
+  });
+
+  return (
+    <div className="donut-wrap">
+      <div className="donut-ring" style={{ background: `conic-gradient(${stops.join(', ')})` }}>
+        <div className="donut-inner">
+          <div className="donut-center-value">
+            {total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total}
+          </div>
+          <div className="donut-center-label">Total</div>
+        </div>
+      </div>
+      <div className="donut-legend">
+        {TIER_COLORS.map((t, i) => (
+          <div key={t.key} className="donut-legend-item">
+            <div className="donut-dot" style={{ background: t.color }} />
+            {t.label} ({vals[i].toFixed(0)}%)
           </div>
         ))}
       </div>
-    );
-  }
-  return null;
-};
+    </div>
+  );
+}
 
 export default function Dashboard() {
-  const [data, setData] = useState(null);
+  const [data, setData]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [days, setDays] = useState(30);
-  const navigate = useNavigate();
+  const [days, setDays]     = useState(30);
+  const navigate            = useNavigate();
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await getDashboard({ days });
-      setData(res);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    try { setData(await getDashboard({ days })); }
+    catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }, [days]);
 
   useEffect(() => { load(); }, [load]);
 
-  const stats = data?.stats;
-  const trend = data?.trend || [];
+  const stats  = data?.stats;
+  const trend  = data?.trend  || [];
   const recent = data?.recent || [];
-  const dist = data?.distribution;
+  const dist   = data?.distribution;
+  const total  = parseInt(stats?.total_queries || 0);
+
+  const avgScore = Math.max(0, Math.min(100, Math.round(
+    100 - (parseFloat(stats?.avg_gco2_per_query || 0) / 10) * 100
+  )));
 
   const trendData = trend.map(r => ({
     day: new Date(r.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -94,163 +134,235 @@ export default function Dashboard() {
   }));
 
   return (
-    <>
-      <div className="page-header">
+    <div className="page-container">
+      {/* Header */}
+      <div className="page-head">
         <div>
-          <div className="page-title">Dashboard <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· Overview</span></div>
+          <div className="page-title">Dashboard</div>
+          <div className="page-desc">Carbon footprint overview for your query workload</div>
         </div>
         <div className="page-actions">
           <select
-            className="form-control"
-            style={{ width: 140, height: 34, padding: '4px 32px 4px 10px', fontSize: 12 }}
+            className="select"
+            style={{ width: 150 }}
             value={days}
             onChange={e => setDays(parseInt(e.target.value))}
           >
             {DAYS_OPTIONS.map(d => <option key={d} value={d}>Last {d} days</option>)}
           </select>
-          <button className="btn btn-primary btn-sm" onClick={() => navigate('/reports')}>↓ Export Report</button>
+          <button className="btn btn-outline btn-sm" onClick={() => navigate('/reports')}>
+            <span className="material-symbols-outlined sz-16">download</span>
+            Export Report
+          </button>
         </div>
       </div>
 
-      <div className="page-body">
-        <div className="stat-cards">
-          <div className="stat-card">
-            <div className="stat-info">
-              <div className="stat-label">Total Queries Analyzed</div>
-              <div className="stat-value">{loading ? '—' : parseInt(stats?.total_queries || 0).toLocaleString()}</div>
-              <div className="stat-sub">All time</div>
-            </div>
-            <div className="stat-icon" style={{ background: 'rgba(0,255,136,0.08)' }}>⚡</div>
+      {/* KPI Row */}
+      <div className="kpi-grid">
+        <div className="kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-label">Total Queries ({days}d)</span>
+            <span className="material-symbols-outlined kpi-icon">database</span>
           </div>
-          <div className="stat-card">
-            <div className="stat-info">
-              <div className="stat-label">Avg gCO₂ per Query</div>
-              <div className="stat-value">{loading ? '—' : parseFloat(stats?.avg_gco2_per_query || 0).toFixed(2)}</div>
-              <div className="stat-sub">grams CO₂ equivalent</div>
-            </div>
-            <div className="stat-icon" style={{ background: 'rgba(77,201,255,0.08)' }}>◎</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-info">
-              <div className="stat-label">Sustainability Score</div>
-              <div className="stat-value green">
-                {loading ? '—' : `${Math.max(0, Math.round(100 - (parseFloat(stats?.avg_gco2_per_query || 0) / 10) * 100))}/100`}
-              </div>
-              <div className="stat-sub up">↑ this period</div>
-            </div>
-            <div className="stat-icon" style={{ background: 'rgba(0,255,136,0.08)' }}>◈</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-info">
-              <div className="stat-label">Total CO₂ Emitted</div>
-              <div className="stat-value">{loading ? '—' : parseFloat(stats?.total_co2_kg || 0).toFixed(2)} <span style={{ fontSize: 14 }}>kg</span></div>
-              <div className="stat-sub">last {days} days</div>
-            </div>
-            <div className="stat-icon" style={{ background: 'rgba(245,166,35,0.08)' }}>⊙</div>
+          <div className="kpi-value">{loading ? '—' : total.toLocaleString()}</div>
+          <div className="kpi-trend up">
+            <span className="material-symbols-outlined sz-16">trending_up</span>
+            All time
           </div>
         </div>
 
-        <div className="dashboard-grid">
-          <div className="chart-card">
-            <div className="chart-header">
-              <div>
-                <div className="chart-title">Emissions Trend</div>
-                <div className="chart-subtitle">Daily average gCO₂ per query · Last {days} days</div>
-              </div>
-            </div>
-            {trendData.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">📊</div>
-                <div className="empty-state-text">No data yet. Analyze some queries to see trends.</div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 16 }}>
-                <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={trendData}>
-                    <defs>
-                      <linearGradient id="opGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00ff88" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#00ff88" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="baseGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4dc9ff" stopOpacity={0.15} />
-                        <stop offset="95%" stopColor="#4dc9ff" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e2832" />
-                    <XAxis dataKey="day" tick={{ fill: '#4a5568', fontSize: 11, fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#4a5568', fontSize: 11, fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="avg_gco2" stroke="#00ff88" strokeWidth={2.5} fill="url(#opGrad)" dot={false} name="avg_gco2" />
-                    <Area type="monotone" dataKey="baseline" stroke="#4dc9ff" strokeWidth={1.5} fill="url(#baseGrad)" dot={false} strokeDasharray="4 4" name="baseline" />
-                  </AreaChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#7a8a9a' }}>
-                    <div style={{ width: 24, height: 2, background: '#00ff88' }} /> Operational Emissions
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#7a8a9a' }}>
-                    <div style={{ width: 24, height: 2, background: '#4dc9ff', borderTop: '2px dashed #4dc9ff' }} /> Baseline Reference
-                  </div>
-                </div>
-              </div>
-            )}
+        <div className="kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-label">Avg Sustainability Score</span>
+            <span className="material-symbols-outlined kpi-icon">eco</span>
           </div>
+          <div className="kpi-value green">{loading ? '—' : `${avgScore}/100`}</div>
+          <div className="kpi-trend neutral">
+            Score target: 90+
+          </div>
+        </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="chart-card">
-              <div className="chart-title" style={{ marginBottom: 14 }}>Recent Queries</div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Latest analyses</span>
-                <button className="btn-ghost" style={{ fontSize: 11, color: 'var(--blue)', background: 'none', border: 'none' }}
-                  onClick={() => navigate('/reports')}>View all →</button>
-              </div>
-              {recent.length === 0 ? (
-                <div className="empty-state" style={{ padding: '24px 0' }}>
-                  <div className="empty-state-text">No queries yet</div>
-                </div>
-              ) : recent.map(r => {
-                const cls = r.classification || 'SUSTAINABLE';
-                const iconColor = cls === 'SUSTAINABLE' ? '#00ff88' : cls === 'MODERATE' ? '#f5a623' : '#ff4d4d';
-                return (
-                  <div key={r.id} className="recent-item">
-                    <div className="recent-icon" style={{ background: `${iconColor}18`, color: iconColor }}>{cls[0]}</div>
-                    <div className="recent-text">
-                      <div className="recent-query">{r.query_text}</div>
-                      <div className="recent-meta">{fmtTimeAgo(r.created_at)} · {fmtRuntime(r.runtime_s)} runtime</div>
-                    </div>
-                    <div className="recent-value" style={{ color: iconColor }}>{fmtGco2(r.total_emissions_gco2)} g</div>
-                  </div>
-                );
-              })}
+        <div className="kpi-card">
+          <div className="kpi-card-top">
+            <span className="kpi-label">CO₂ Emitted</span>
+            <span className="material-symbols-outlined kpi-icon">co2</span>
+          </div>
+          <div className="kpi-value">
+            {loading ? '—' : `${parseFloat(stats?.total_co2_kg || 0).toFixed(3)} kg`}
+          </div>
+          <div className="kpi-trend neutral">
+            Last {days} days
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row */}
+      <div className="charts-row">
+        {/* Line chart */}
+        <div className="chart-card">
+          <div className="chart-card-title">
+            Sustainability Score Trend
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>
+              Daily avg emissions · Last {days} days
+            </span>
+          </div>
+          {loading ? (
+            <div className="empty-state" style={{ flex: 1 }}>
+              <span className="spinner" style={{ margin: '0 auto' }} />
             </div>
-
-            <div className="chart-card">
-              <div className="chart-title" style={{ marginBottom: 12 }}>Distribution</div>
-              <div>
+          ) : trendData.length === 0 ? (
+            <div className="empty-state" style={{ flex: 1 }}>
+              <span className="material-symbols-outlined empty-icon">bar_chart</span>
+              <div className="empty-text">No trend data yet. Analyze some queries to see trends.</div>
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={trendData} margin={{ left: -10 }}>
+                  <defs>
+                    <linearGradient id="opGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#00FF88" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#00FF88" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="baseGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#00daf8" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#00daf8" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(59,75,61,0.4)" />
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fill: '#849585', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+                    axisLine={false} tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: '#849585', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+                    axisLine={false} tickLine={false}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area
+                    type="monotone" dataKey="avg_gco2"
+                    stroke="#00FF88" strokeWidth={2}
+                    fill="url(#opGrad)" dot={false} name="avg_gco2"
+                  />
+                  <Area
+                    type="monotone" dataKey="baseline"
+                    stroke="#00daf8" strokeWidth={1.5}
+                    fill="url(#baseGrad)" dot={false}
+                    strokeDasharray="4 4" name="baseline"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
                 {[
-                  { label: 'Sustainable', color: '#00ff88', val: dist?.sustainable_pct || 0, range: '0–2.0' },
-                  { label: 'Moderate', color: '#f5a623', val: dist?.moderate_pct || 0, range: '2.0–5.0' },
-                  { label: 'High Impact', color: '#ff4d4d', val: dist?.high_impact_pct || 0, range: '5.0+' },
-                ].map(d => (
-                  <div key={d.label}>
-                    <div className="legend-item">
-                      <div className="legend-label"><div className="legend-dot" style={{ background: d.color }} />{d.label}</div>
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                        <span className="legend-range">{d.range}</span>
-                        <span style={{ color: d.color, fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 36, textAlign: 'right' }}>{parseFloat(d.val).toFixed(0)}%</span>
-                      </div>
-                    </div>
-                    <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, marginBottom: 10 }}>
-                      <div style={{ width: `${Math.min(parseFloat(d.val), 100)}%`, height: '100%', background: d.color, borderRadius: 2, transition: 'width 0.8s ease' }} />
-                    </div>
+                  { color: '#00FF88', label: 'Operational Emissions' },
+                  { color: '#00daf8', label: 'Baseline Reference', dashed: true },
+                ].map(l => (
+                  <div key={l.label} style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    fontSize: 11, color: 'var(--text-muted)',
+                  }}>
+                    <div style={{
+                      width: 20, height: 2,
+                      background: l.color,
+                      borderTop: l.dashed ? `2px dashed ${l.color}` : undefined,
+                    }} />
+                    {l.label}
                   </div>
                 ))}
               </div>
+            </>
+          )}
+        </div>
+
+        {/* Donut */}
+        <div className="chart-card">
+          <div className="chart-card-title">Tier Breakdown</div>
+          {loading ? (
+            <div className="empty-state" style={{ flex: 1 }}>
+              <span className="spinner" style={{ margin: '0 auto' }} />
             </div>
-          </div>
+          ) : (
+            <TierDonut dist={dist} total={total} />
+          )}
         </div>
       </div>
-    </>
+
+      {/* Recent Heavy Queries */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">
+            <span className="material-symbols-outlined sz-16">table_rows</span>
+            Recent Heavy Queries
+          </span>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ color: 'var(--green)' }}
+            onClick={() => navigate('/reports')}
+          >
+            View All
+            <span className="material-symbols-outlined sz-16">arrow_forward</span>
+          </button>
+        </div>
+
+        <div className="data-table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: 80 }}>Score</th>
+                <th style={{ width: 110 }}>Tier</th>
+                <th style={{ width: 150 }}>Database</th>
+                <th>SQL Snippet</th>
+                <th style={{ width: 90, textAlign: 'right' }}>CO₂ (g)</th>
+                <th style={{ width: 110, textAlign: 'right' }}>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32 }}>
+                  <span className="spinner" style={{ display: 'inline-block' }} />
+                </td></tr>
+              ) : recent.length === 0 ? (
+                <tr><td colSpan={6}>
+                  <div className="empty-state" style={{ padding: '24px 0' }}>
+                    <div className="empty-text">No queries yet. Head to Analyze to run your first query.</div>
+                  </div>
+                </td></tr>
+              ) : recent.map(r => {
+                const tc = tierConfig(r.classification);
+                const co2 = parseFloat(r.total_emissions_gco2 || 0);
+                const co2Color = co2 < 1 ? 'var(--green)' : co2 < 5 ? 'var(--amber)' : 'var(--red)';
+                return (
+                  <tr key={r.id}>
+                    <td>
+                      <div
+                        className={`score-box ${tc.score_cls}`}
+                        style={{
+                          background: `rgba(var(--score-bg, 0,255,136), 0.1)`,
+                          border: `1px solid rgba(var(--score-bd, 0,255,136), 0.3)`,
+                        }}
+                      >
+                        {tc.letter}
+                      </div>
+                    </td>
+                    <td><span className={`tier-pill ${tc.cls}`}>{r.classification || 'UNKNOWN'}</span></td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>{r.database_name || '—'}</td>
+                    <td className="col-code">
+                      <SqlSnippet sql={r.query_text || ''} />
+                    </td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: co2Color }}>
+                      {fmtGco2(co2)}
+                    </td>
+                    <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                      {fmtTimeAgo(r.created_at)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }

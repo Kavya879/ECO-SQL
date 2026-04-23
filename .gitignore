@@ -46,3 +46,6 @@ temp/
 *.sql
 !schema.sql
 
+*.md
+!Readme.md
+/stitch_querycarbon_ui_ux_design

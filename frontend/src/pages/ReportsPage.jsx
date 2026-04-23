@@ -1,212 +1,280 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getHistory, clearHistory } from '../api/api.js';
-import { fmtGco2, fmtRuntime, fmtTimeAgo, classificationBadge } from '../utils/format.js';
+import { fmtGco2, fmtRuntime, fmtTimeAgo } from '../utils/format.js';
 
 const DAYS = [7, 30, 90, 365];
+const LIMIT = 15;
+
+/* ─── SQL keyword highlighter ───────────────────────────────── */
+const KW_RE = /\b(SELECT|FROM|WHERE|JOIN|LEFT|INNER|OUTER|ON|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|UNION|INSERT|UPDATE|DELETE|WITH|AS|AND|OR|NOT|IN|LIKE|COUNT|SUM|AVG|DISTINCT|CROSS)\b/gi;
+
+function SqlCell({ sql = '' }) {
+  const parts = sql.split(KW_RE);
+  return (
+    <div className="sql-snippet">
+      {parts.map((p, i) =>
+        KW_RE.test(p)
+          ? <span key={i} className="sql-kw">{p}</span>
+          : p
+      )}
+    </div>
+  );
+}
+
+/* ─── Score badge ────────────────────────────────────────────── */
+function ScoreBadge({ cls }) {
+  const c = String(cls || '').toUpperCase();
+  const map = {
+    EXCELLENT:   { letter: 'A', color: '#00FF88',  bg: 'rgba(0,255,136,0.15)'  },
+    SUSTAINABLE: { letter: 'A', color: '#00FF88',  bg: 'rgba(0,255,136,0.15)'  },
+    GOOD:        { letter: 'B', color: '#a5eeff',  bg: 'rgba(165,238,255,0.1)' },
+    MODERATE:    { letter: 'C', color: '#e5c364',  bg: 'rgba(229,195,100,0.1)' },
+    POOR:        { letter: 'D', color: '#ffb4ab',  bg: 'rgba(255,180,171,0.1)' },
+    CRITICAL:    { letter: 'F', color: '#ffb4ab',  bg: 'rgba(147,0,10,0.3)'    },
+    'HIGH IMPACT':{ letter: 'F', color: '#ffb4ab', bg: 'rgba(147,0,10,0.3)'    },
+  };
+  const cfg = map[c] || { letter: '?', color: 'var(--text-muted)', bg: 'var(--bg-surface)' };
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      padding: '2px 8px', borderRadius: 4,
+      background: cfg.bg, color: cfg.color,
+      fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
+    }}>
+      {cfg.letter}
+    </span>
+  );
+}
 
 export default function ReportsPage() {
-  const [data, setData] = useState({ rows: [], total: 0 });
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [classification, setClassification] = useState('');
-  const [days, setDays] = useState(30);
-  const [page, setPage] = useState(0);
+  const navigate = useNavigate();
+  const [data, setData]         = useState({ rows: [], total: 0 });
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState('');
+  const [cls, setCls]           = useState('');
+  const [days, setDays]         = useState(30);
+  const [page, setPage]         = useState(0);
   const [copiedId, setCopiedId] = useState(null);
-  const limit = 12;
+
+  const totalPages = Math.ceil(data.total / LIMIT);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getHistory({ search, classification, days, limit, offset: page * limit });
+      const res = await getHistory({ search, classification: cls, days, limit: LIMIT, offset: page * LIMIT });
       setData(res);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [search, classification, days, page]);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [search, cls, days, page]);
 
   useEffect(() => { load(); }, [load]);
 
-  const exportCsv = () => {
-    window.location.href = `/api/history/export?days=${days}`;
-  };
-
-  const copyQueryToEditor = (queryText, queryId) => {
-    // Store in sessionStorage for cross-page communication
-    sessionStorage.setItem('queryToCopy', queryText);
-    // Navigate to analyze page
-    window.location.href = '/analyze';
-    setCopiedId(queryId);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleClearHistory = async () => {
-    if (!window.confirm('Are you sure you want to clear all query history? This cannot be undone.')) {
-      return;
-    }
+  const handleClear = async () => {
+    if (!window.confirm('Clear ALL query history? This cannot be undone.')) return;
     try {
       await clearHistory();
       setData({ rows: [], total: 0 });
       setPage(0);
-      alert('History cleared successfully');
-    } catch (e) {
-      alert('Failed to clear history: ' + (e.response?.data?.error || e.message));
-    }
+    } catch (e) { alert('Failed: ' + (e.response?.data?.error || e.message)); }
   };
 
-  const totalPages = Math.ceil(data.total / limit);
-  const stats = {
-    total: data.total,
-    totalCo2Kg: data.rows.reduce((s, r) => s + parseFloat(r.total_emissions_gco2 || 0), 0) / 1000,
-    highImpact: data.rows.filter(r => r.classification === 'HIGH IMPACT').length,
-    sustainable: data.rows.filter(r => r.classification === 'SUSTAINABLE').length,
+  const exportCsv = () => { window.location.href = `/api/history/export?days=${days}`; };
+
+  const copyToEditor = (queryText, id) => {
+    sessionStorage.setItem('queryToCopy', queryText);
+    setCopiedId(id);
+    setTimeout(() => { setCopiedId(null); navigate('/analyze'); }, 400);
   };
+
+  /* Pagination pages to display */
+  const pageNums = (() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i);
+    if (page < 4) return [0, 1, 2, 3, '...', totalPages - 1];
+    if (page > totalPages - 5) return [0, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1];
+    return [0, '...', page - 1, page, page + 1, '...', totalPages - 1];
+  })();
 
   return (
-    <>
-      <div className="page-header">
+    <div className="page-container">
+      {/* Header */}
+      <div className="page-head">
         <div>
-          <div className="page-title">Reports <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 13 }}>· Historical query emission records</span></div>
+          <div className="page-title">Reports &amp; History</div>
+          <div className="page-desc">Analyze past query executions and their carbon footprint.</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-secondary btn-sm" onClick={load}>↺ Refresh</button>
-          <button className="btn btn-primary btn-sm" onClick={exportCsv}>↓ Export CSV</button>
-          <button className="btn btn-secondary btn-sm" onClick={handleClearHistory} style={{ color: 'var(--red)' }}>🗑 Clear History</button>
+          <button className="btn btn-outline btn-sm" onClick={handleClear}>
+            <span className="material-symbols-outlined sz-16">delete</span>
+            Clear History
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={exportCsv}>
+            <span className="material-symbols-outlined sz-16">download</span>
+            Export CSV
+          </button>
         </div>
       </div>
 
-      <div className="page-body">
-        {/* Summary cards */}
-        <div className="stat-cards" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
-          {[
-            { label: 'Total Queries', value: data.total.toLocaleString(), icon: '⚡', color: 'var(--green)' },
-            { label: 'Total CO₂ Emitted', value: `${stats.totalCo2Kg.toFixed(2)} kg`, icon: '☁', color: 'var(--text-primary)' },
-            { label: 'High Impact Queries', value: data.rows.filter(r => r.classification === 'HIGH IMPACT').length, icon: '⚠', color: 'var(--red)' },
-            { label: 'Sustainable Queries', value: data.rows.filter(r => r.classification === 'SUSTAINABLE').length, icon: '✓', color: 'var(--green)' },
-          ].map(s => (
-            <div key={s.label} className="stat-card">
-              <div className="stat-info">
-                <div className="stat-label">{s.label}</div>
-                <div className="stat-value" style={{ color: s.color, fontSize: 22 }}>{s.value}</div>
-              </div>
-              <div className="stat-icon" style={{ background: 'var(--bg-secondary)', fontSize: 20 }}>{s.icon}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Filter bar */}
-        <div className="filter-bar">
-          <div className="search-input-wrap">
-            <span className="search-icon">⌕</span>
+      {/* Filter toolbar */}
+      <div className="filter-card">
+        {/* Search */}
+        <div className="filter-group" style={{ flex: 2, minWidth: 220 }}>
+          <label className="field-label">Search Queries</label>
+          <div className="search-wrap">
+            <span className="material-symbols-outlined search-icon">search</span>
             <input
-              className="form-control search-input"
-              placeholder="Search SQL queries..."
+              className="input search-input"
+              placeholder="SELECT * FROM..."
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(0); }}
             />
           </div>
-          <select className="form-control" style={{ width: 170, height: 36, padding: '6px 32px 6px 10px' }}
-            value={classification} onChange={e => { setClassification(e.target.value); setPage(0); }}>
-            <option value="">All Classifications</option>
-            <option value="SUSTAINABLE">Sustainable</option>
-            <option value="MODERATE">Moderate</option>
-            <option value="HIGH IMPACT">High Impact</option>
-          </select>
-          <select className="form-control" style={{ width: 140, height: 36, padding: '6px 32px 6px 10px' }}
-            value={days} onChange={e => { setDays(parseInt(e.target.value)); setPage(0); }}>
-            {DAYS.map(d => <option key={d} value={d}>Last {d} days</option>)}
-          </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>
-            Showing {page * limit + 1}–{Math.min((page + 1) * limit, data.total)} of {data.total.toLocaleString()}
-          </span>
         </div>
 
-        {/* Table */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="reports-table-wrap">
-            <table className="reports-table">
-              <thead>
-                <tr>
-                  <th>Query ID</th>
-                  <th>SQL Snippet</th>
-                  <th>Database</th>
-                  <th>Runtime (s)</th>
-                  <th>Energy (kWh)</th>
-                  <th>gCO₂ ↑</th>
-                  <th>Tables</th>
-                  <th>Classification</th>
-                  <th>Timestamp</th>
-                  <th style={{ width: 60 }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
-                    <span className="spinner" style={{ display: 'inline-block' }} />
-                  </td></tr>
-                ) : data.rows.length === 0 ? (
-                  <tr><td colSpan={10}>
-                    <div className="empty-state">
-                      <div className="empty-state-icon">📋</div>
-                      <div className="empty-state-text">No records found. Try adjusting filters.</div>
-                    </div>
-                  </td></tr>
-                ) : data.rows.map(row => {
-                  const cls = row.classification || 'SUSTAINABLE';
-                  const normalizedCls = String(cls).toUpperCase();
-                  const valColor = ['SUSTAINABLE', 'EXCELLENT', 'GOOD'].includes(normalizedCls)
-                    ? 'var(--green)'
-                    : normalizedCls === 'MODERATE'
-                      ? 'var(--amber)'
-                      : 'var(--red)';
-                  const isCopied = copiedId === row.id;
-                  return (
-                    <tr key={row.id}>
-                      <td className="mono" style={{ color: 'var(--text-muted)' }}>#{row.id}</td>
-                      <td><div className="query-snippet">{row.query_text}</div></td>
-                      <td className="mono" style={{ fontSize: 11, color: 'var(--blue)' }}>{row.database_name}</td>
-                      <td className="mono">{fmtRuntime(row.runtime_s)}</td>
-                      <td className="mono" style={{ color: 'var(--text-secondary)' }}>{row.energy_kwh?.toFixed(7)}</td>
-                      <td className="mono" style={{ color: valColor, fontWeight: 600 }}>{fmtGco2(row.total_emissions_gco2)}</td>
-                      <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {(row.tables_involved || []).join(', ') || '—'}
-                      </td>
-                      <td><span className={`badge ${classificationBadge(cls)}`}>{cls}</span></td>
-                      <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtTimeAgo(row.created_at)}</td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => copyQueryToEditor(row.query_text, row.id)}
-                          title="Copy query to editor"
-                          style={{
-                            fontSize: 11,
-                            padding: '4px 6px',
-                            color: isCopied ? 'var(--green)' : 'var(--text-secondary)',
-                          }}
-                        >
-                          {isCopied ? '✓' : '→'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {/* Date range */}
+        <div className="filter-group" style={{ minWidth: 160 }}>
+          <label className="field-label">Date Range</label>
+          <div style={{ position: 'relative' }}>
+            <select
+              className="select"
+              value={days}
+              onChange={e => { setDays(parseInt(e.target.value)); setPage(0); }}
+            >
+              {DAYS.map(d => <option key={d} value={d}>Last {d} Days</option>)}
+            </select>
           </div>
+        </div>
 
-          {/* Pagination */}
+        {/* Tier filter */}
+        <div className="filter-group" style={{ minWidth: 160 }}>
+          <label className="field-label">Tier Filter</label>
+          <select
+            className="select"
+            value={cls}
+            onChange={e => { setCls(e.target.value); setPage(0); }}
+          >
+            <option value="">All Tiers</option>
+            <option value="EXCELLENT">Excellent</option>
+            <option value="GOOD">Good</option>
+            <option value="MODERATE">Moderate</option>
+            <option value="POOR">Poor</option>
+            <option value="CRITICAL">Critical</option>
+          </select>
+        </div>
+
+        <button className="btn btn-outline btn-sm" onClick={load} style={{ alignSelf: 'flex-end' }}>
+          <span className="material-symbols-outlined sz-16">filter_list</span>
+          Refresh
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="card">
+        <div className="data-table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: 80 }}>ID</th>
+                <th style={{ minWidth: 320 }}>SQL</th>
+                <th style={{ width: 120 }}>Database</th>
+                <th style={{ width: 110, textAlign: 'right' }}>Runtime (ms)</th>
+                <th style={{ width: 80, textAlign: 'center' }}>Score</th>
+                <th style={{ width: 110, textAlign: 'right' }}>Total CO₂ (g)</th>
+                <th style={{ width: 150 }}>Timestamp</th>
+                <th style={{ width: 60 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 36 }}>
+                  <span className="spinner" style={{ display: 'inline-block' }} />
+                </td></tr>
+              ) : data.rows.length === 0 ? (
+                <tr><td colSpan={8}>
+                  <div className="empty-state">
+                    <span className="material-symbols-outlined empty-icon">history</span>
+                    <div className="empty-text">No records found. Try adjusting filters or analyze some queries.</div>
+                  </div>
+                </td></tr>
+              ) : data.rows.map(row => {
+                const co2 = parseFloat(row.total_emissions_gco2 || 0);
+                const co2Color = co2 < 1 ? 'var(--green)' : co2 < 5 ? 'var(--amber)' : 'var(--red)';
+                const isCopied = copiedId === row.id;
+                const runtimeMs = row.runtime_s ? (parseFloat(row.runtime_s) * 1000).toFixed(0) : '—';
+                return (
+                  <tr key={row.id}>
+                    <td className="mono dim" style={{ fontSize: 11 }}>#{row.id}</td>
+                    <td className="col-code">
+                      <SqlCell sql={row.query_text || ''} />
+                    </td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>{row.database_name || '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontSize: 11 }}>{runtimeMs}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <ScoreBadge cls={row.classification} />
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right', fontSize: 11, color: co2Color }}>
+                      {fmtGco2(co2)}
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {fmtTimeAgo(row.created_at)}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        className="topbar-btn"
+                        title="Open in editor"
+                        style={{ color: isCopied ? 'var(--green)' : undefined }}
+                        onClick={() => copyToEditor(row.query_text, row.id)}
+                      >
+                        <span className="material-symbols-outlined sz-16">
+                          {isCopied ? 'check' : 'edit'}
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        <div className="pagination">
+          <span>
+            Showing {data.total === 0 ? 0 : page * LIMIT + 1}–{Math.min((page + 1) * LIMIT, data.total)} of {data.total.toLocaleString()} queries
+          </span>
           {totalPages > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderTop: '1px solid var(--border-subtle)' }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</button>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                {page + 1} / {totalPages}
-              </span>
-              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>Next →</button>
+            <div className="pagination-pages">
+              <button
+                className="page-btn"
+                disabled={page === 0}
+                onClick={() => setPage(p => p - 1)}
+              >
+                <span className="material-symbols-outlined sz-16">chevron_left</span>
+              </button>
+              {pageNums.map((p, i) =>
+                p === '...'
+                  ? <span key={`e${i}`} style={{ padding: '0 4px', alignSelf: 'center', color: 'var(--text-dim)' }}>…</span>
+                  : (
+                    <button
+                      key={p}
+                      className={`page-btn${p === page ? ' active' : ''}`}
+                      onClick={() => setPage(p)}
+                    >
+                      {p + 1}
+                    </button>
+                  )
+              )}
+              <button
+                className="page-btn"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage(p => p + 1)}
+              >
+                <span className="material-symbols-outlined sz-16">chevron_right</span>
+              </button>
             </div>
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
