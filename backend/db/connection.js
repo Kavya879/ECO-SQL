@@ -162,6 +162,19 @@ async function getHistory({ limit = 50, offset = 0, search = '', classification 
   }
 }
 
+async function getHistoryById(id) {
+  const client = await defaultPool.connect();
+  try {
+    const row = await client.query(
+      'SELECT * FROM querycarbon_history WHERE id = $1 LIMIT 1',
+      [parseInt(id)]
+    );
+    return row.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
 async function getDashboardStats(days = 30) {
   const client = await defaultPool.connect();
   try {
@@ -169,7 +182,7 @@ async function getDashboardStats(days = 30) {
     const stats = await client.query(`
       SELECT
         COUNT(*) AS total_queries,
-        COALESCE(SUM(total_emissions_gco2) / 1000, 0) AS total_co2_kg,
+        COALESCE(SUM(total_emissions_gco2), 0) AS total_co2_g,
         COUNT(*) FILTER (WHERE classification = 'HIGH IMPACT') AS high_impact,
         COUNT(*) FILTER (WHERE classification = 'SUSTAINABLE') AS sustainable,
         COALESCE(AVG(total_emissions_gco2), 0) AS avg_gco2_per_query
@@ -217,4 +230,4 @@ async function clearHistory(days) {
   }
 }
 
-module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getDashboardStats, clearHistory };
+module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getHistoryById, getDashboardStats, clearHistory };

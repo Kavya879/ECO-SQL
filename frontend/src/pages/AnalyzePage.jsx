@@ -11,101 +11,6 @@ const DEFAULTS = {
   te: 100000, el: 48180, rr: 0.05, tor: 11000,
 };
 
-/* ─── SQL rewriter (apply finding to SQL) ───────────────────── */
-function applyFindingToSql(sql, finding) {
-  const id = finding.rule_id || finding.pattern_id || '';
-
-  // EXPLAIN findings: inject CREATE INDEX DDL
-  if (finding.track === 'explain_analysis' && finding.index_ddl) {
-    return [
-      `-- ⚡ INDEX SUGGESTION [${id}] — severity: ${finding.severity}`,
-      `-- Run this statement, then re-analyze:`,
-      `${finding.index_ddl};`,
-      ``,
-      `-- ── Original query (unchanged) ──`,
-      sql,
-    ].join('\n');
-  }
-
-  let s = sql;
-
-  // R4: SELECT * → SELECT <columns>
-  if (id === 'R4' || (finding.title || '').includes('SELECT *')) {
-    const cols = finding.suggested_columns?.join(', ') || 'id, name, created_at';
-    s = s.replace(/SELECT\s+\*/gi, `SELECT ${cols}`);
-    return s !== sql ? s : `-- TODO: Replace SELECT * with explicit columns\n${sql}`;
-  }
-
-  // R6: LIKE '%...' leading wildcard
-  if (id === 'R6') {
-    return `-- ⚠ Leading-wildcard LIKE cannot use index. Consider full-text search:\n-- CREATE INDEX … USING GIN(col gin_trgm_ops);\n${sql}`;
-  }
-
-  // R7: DISTINCT → GROUP BY
-  if (id === 'R7') {
-    s = s.replace(/SELECT\s+DISTINCT\s+/gi, 'SELECT ');
-    const cols = s.match(/SELECT\s+([\s\S]+?)\s+FROM/i)?.[1]?.trim() || 'col';
-    if (!/(GROUP BY)/i.test(s)) {
-      s = s.replace(/;?\s*$/, '') + `\nGROUP BY ${cols};`;
-    }
-    return s;
-  }
-
-  // R8: OR → UNION ALL
-  if (id === 'R8') {
-    return `-- ⚡ Rewrite OR as UNION ALL for better index utilization:\n${sql}\n-- TODO: Split WHERE x=a OR x=b into two queries joined with UNION ALL`;
-  }
-
-  // R9: NOT IN → NOT EXISTS
-  if (id === 'R9') {
-    s = s.replace(/NOT\s+IN\s*\(/gi, 'NOT EXISTS (SELECT 1 FROM ');
-    return s !== sql ? s : `-- TODO: Replace NOT IN with NOT EXISTS\n${sql}`;
-  }
-
-  // R11: functions on indexed cols
-  if (id === 'R11') {
-    return `-- ⚡ Avoid wrapping indexed columns in functions; use range predicates:\n${sql}\n-- Example: WHERE created_at >= '2024-01-01' instead of WHERE YEAR(created_at) = 2024`;
-  }
-
-  // R12: implicit cast / type mismatch
-  if (id === 'R12') {
-    return `-- ⚠ Implicit type cast prevents index use. Ensure literal type matches column type:\n${sql}`;
-  }
-
-  // R1: N+1 / subquery → JOIN
-  if (id === 'R1') {
-    return `-- ⚡ Replace correlated subquery with a JOIN:\n${sql}\n-- TODO: Refactor subquery into a JOIN to allow the query planner to optimise`;
-  }
-
-  // R2: Missing index
-  if (id === 'R2') {
-    const table  = finding.table  || 'your_table';
-    const column = finding.column || 'your_column';
-    return `-- ⚡ Add an index to improve filter performance:\nCREATE INDEX CONCURRENTLY idx_${table}_${column} ON ${table}(${column});\n\n-- Original query:\n${sql}`;
-  }
-
-  // R3: CROSS JOIN / cartesian product
-  if (id === 'R3') {
-    return `-- ⚠ Cartesian CROSS JOIN detected – add explicit JOIN condition:\n${sql}\n-- TODO: Replace CROSS JOIN with INNER JOIN … ON t1.id = t2.fk_id`;
-  }
-
-  // R5: ORDER BY without LIMIT
-  if (id === 'R5') {
-    if (!/\bLIMIT\b/i.test(s)) {
-      s = s.replace(/;?\s*$/, '') + '\nLIMIT 100;';
-    }
-    return s;
-  }
-
-  // R10: Non-SARGable predicate
-  if (id === 'R10') {
-    return `-- ⚡ Predicate is non-SARGable (prevents index seek). Rewrite to avoid functions on the LHS:\n${sql}`;
-  }
-
-  // Fallback: prepend suggestion as comment
-  return `-- 💡 [${id}] ${finding.suggestion || finding.description || ''}\n${sql}`;
-}
-
 /* ─── Tier colours ───────────────────────────────────────────── */
 function tierInfo(cls) {
   const c = String(cls || '').toUpperCase();
@@ -134,7 +39,6 @@ export default function AnalyzePage() {
   const [optResult, setOptResult]   = useState(null);
   const [optError, setOptError]     = useState(null);
   const [filterSev, setFilterSev]   = useState('all');
-  const [toast, setToast]           = useState('');
   const textareaRef                 = useRef(null);
 
   /* ── Load draft / copied query on mount ── */
@@ -191,16 +95,6 @@ export default function AnalyzePage() {
       setOptError(e.response?.data?.error || e.message);
     } finally { setOptimizing(false); }
   }, []);
-
-  /* ── Apply finding to editor ── */
-  const handleApply = (finding) => {
-    const newSql = applyFindingToSql(sql, finding);
-    setSql(newSql);
-    setResult(null); setOptResult(null);
-    setToast('✓ Fix applied — review the query and re-analyze.');
-    setTimeout(() => setToast(''), 3500);
-    textareaRef.current?.focus();
-  };
 
   /* ── Tab key in textarea ── */
   const handleKeyDown = (e) => {
@@ -636,7 +530,7 @@ export default function AnalyzePage() {
                       </p>
                     ) : (
                       filtered.map((f, i) => (
-                        <FindingCard key={i} finding={f} onApply={handleApply} />
+                        <FindingCard key={i} finding={f} />
                       ))
                     )}
 
@@ -682,13 +576,6 @@ export default function AnalyzePage() {
         </div>
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div className="toast">
-          <span className="material-symbols-outlined sz-16" style={{ color: 'var(--green)' }}>check_circle</span>
-          {toast}
-        </div>
-      )}
     </div>
   );
 }

@@ -187,6 +187,104 @@ async function getHistory(req, res) {
 }
 
 /**
+ * GET /api/history/:id
+ */
+async function getHistoryById(req, res) {
+  try {
+    const { id } = req.params;
+    const row = await db.getHistoryById(id);
+    if (!row) {
+      return res.status(404).json({ error: 'Query history record not found' });
+    }
+    return res.json({ row });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /api/optimize-query
+ * Body: { query_id } or { sql }
+ */
+async function optimizeQuery(req, res) {
+  try {
+    const { query_id, sql } = req.body || {};
+    let queryText = typeof sql === 'string' ? sql.trim() : '';
+
+    if (!queryText && query_id) {
+      const row = await db.getHistoryById(query_id);
+      if (!row) {
+        return res.status(404).json({ error: 'Query history record not found for optimization' });
+      }
+      queryText = String(row.query_text || '').trim();
+    }
+
+    if (!queryText) {
+      return res.status(400).json({ error: 'Missing required field: query_id or sql' });
+    }
+
+    const analysis = analyzeOptimization(queryText, null);
+    const issues = Array.isArray(analysis?.issues) ? analysis.issues : [];
+    const indexRecommendations = Array.isArray(analysis?.indexRecommendations) ? analysis.indexRecommendations : [];
+
+    const severityByIssue = {
+      'Possible Cartesian join': 'high',
+      'Sequential scan in EXPLAIN plan': 'high',
+      'High-cost or high-row plan node': 'high',
+      'Potential missing indexes on filter/join columns': 'high',
+      'SELECT * detected': 'medium',
+      'Missing WHERE clause': 'medium',
+      'ORDER BY may be unindexed': 'medium',
+      'Function on column in predicate': 'medium',
+      'Leading wildcard LIKE detected': 'medium',
+      'Missing LIMIT clause': 'low',
+      'DISTINCT detected': 'low',
+      'Repeated subquery detected': 'medium',
+      'No major anti-pattern detected': 'low',
+    };
+
+    const scoreBySeverity = { high: 3, medium: 2, low: 1 };
+
+    const issueFindings = issues.map((item, idx) => {
+      const issueName = item.issue || 'Optimization opportunity';
+      const severity = severityByIssue[issueName] || 'medium';
+      const reason = item.laymanReason || item.reason || 'This pattern can increase query cost.';
+      const action = item.whatToDo || item.suggestion || 'Review this query pattern and validate with EXPLAIN ANALYZE.';
+
+      return {
+        rule_id: `R${idx + 1}`,
+        severity,
+        title: issueName,
+        description: `${reason} Action: ${action}`,
+        suggestion: action,
+        before: item.example?.before,
+        after: item.example?.after,
+      };
+    });
+
+    const indexFindings = indexRecommendations.map((ddl, idx) => ({
+      rule_id: `IDX${idx + 1}`,
+      severity: 'high',
+      title: 'Create index for observed filter/join pattern',
+      description: 'The analyzer detected a column pattern that is likely to benefit from an index. Apply the DDL below, then re-run EXPLAIN ANALYZE to confirm lower cost/rows.',
+      suggestion: 'Apply this index in a migration window and validate plan improvements.',
+      index_ddl: ddl,
+      track: 'explain_analysis',
+    }));
+
+    const findings = [...issueFindings, ...indexFindings]
+      .sort((a, b) => (scoreBySeverity[b.severity] || 0) - (scoreBySeverity[a.severity] || 0));
+
+    return res.json({
+      findings,
+      summary: analysis?.summary || {},
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/**
  * GET /api/dashboard
  */
 async function getDashboard(req, res) {
@@ -241,4 +339,4 @@ async function clearHistory(req, res) {
   }
 }
 
-module.exports = { analyzeQuery, getDatabases, getTables, getHistory, getDashboard, getHardwareConfig, exportHistory, clearHistory };
+module.exports = { analyzeQuery, optimizeQuery, getDatabases, getTables, getHistory, getHistoryById, getDashboard, getHardwareConfig, exportHistory, clearHistory };

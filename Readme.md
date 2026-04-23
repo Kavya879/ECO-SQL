@@ -799,7 +799,7 @@ Currently open (add JWT in Phase 2). For now, use IP whitelisting or VPN in prod
 {
   "stats": {
     "total_queries": 1523,
-    "total_co2_kg": 4.23,
+    "total_co2_g": 4230,
     "high_impact": 145,
     "sustainable": 892,
     "avg_gco2_per_query": 0.00277

@@ -13,7 +13,7 @@ function normalizeSev(sev = '') {
   return 'low';
 }
 
-export default function FindingCard({ finding, onApply }) {
+export default function FindingCard({ finding }) {
   const [expanded, setExpanded] = useState(false);
 
   const sev = normalizeSev(finding.severity);
@@ -115,12 +115,6 @@ export default function FindingCard({ finding, onApply }) {
           <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
             {id}
           </span>
-        )}
-        {onApply && (
-          <button className="apply-btn" onClick={() => onApply(finding)}>
-            <span className="material-symbols-outlined sz-16">edit_note</span>
-            Apply Fix
-          </button>
         )}
       </div>
     </div>

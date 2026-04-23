@@ -55,14 +55,8 @@ export default function QueryDetail() {
     if (row?.id) runOptimize(row.id);
   }, [row, runOptimize]);
 
-  const openInEditor = (sql, applyFinding = null) => {
-    if (applyFinding && sql) {
-      // Simple comment prepend for QueryDetail context
-      const note = `-- Applied suggestion: ${applyFinding.title || applyFinding.pattern || applyFinding.rule_id}\n`;
-      sessionStorage.setItem('queryToCopy', note + sql);
-    } else {
-      sessionStorage.setItem('queryToCopy', sql || '');
-    }
+  const openInEditor = (sql) => {
+    sessionStorage.setItem('queryToCopy', sql || '');
     navigate('/analyze');
   };
 
@@ -202,11 +196,7 @@ export default function QueryDetail() {
               </div>
             )}
             {!optLoading && findings.map((f, i) => (
-              <FindingCard
-                key={i}
-                finding={f}
-                onApply={(finding) => openInEditor(row?.query_text, finding)}
-              />
+              <FindingCard key={i} finding={f} />
             ))}
           </div>
         )}

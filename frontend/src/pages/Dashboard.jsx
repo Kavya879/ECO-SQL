@@ -188,7 +188,7 @@ export default function Dashboard() {
             <span className="material-symbols-outlined kpi-icon">co2</span>
           </div>
           <div className="kpi-value">
-            {loading ? '—' : `${parseFloat(stats?.total_co2_kg || 0).toFixed(3)} kg`}
+            {loading ? '—' : `${fmtGco2(stats?.total_co2_g || 0)} g`}
           </div>
           <div className="kpi-trend neutral">
             Last {days} days
