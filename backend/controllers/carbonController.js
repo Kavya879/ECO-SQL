@@ -107,6 +107,7 @@ async function analyzeQuery(req, res) {
       embodied_emissions_gco2: metrics.embodied_emissions_gco2eq,
       total_emissions_gco2: metrics.total_emissions_gco2eq,
       sci: metrics.sci_gco2eq_per_query,
+      sustainability_score: metrics.sustainability_score,
       classification: metrics.classification,
       tables_involved: tables,
       hardware_config: hardwareConfig,

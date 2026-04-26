@@ -108,11 +108,18 @@ async function ensureHistoryTable() {
         embodied_emissions_gco2 DOUBLE PRECISION,
         total_emissions_gco2 DOUBLE PRECISION,
         sci DOUBLE PRECISION,
+        sustainability_score DOUBLE PRECISION,
         classification VARCHAR(50),
         tables_involved TEXT[],
         hardware_config JSONB,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
+    `);
+
+    // Backward-compatible schema update for existing environments.
+    await client.query(`
+      ALTER TABLE querycarbon_history
+      ADD COLUMN IF NOT EXISTS sustainability_score DOUBLE PRECISION
     `);
   } finally {
     client.release();
@@ -125,13 +132,13 @@ async function saveToHistory(data) {
     const result = await client.query(
       `INSERT INTO querycarbon_history 
         (query_text, database_name, runtime_s, energy_kwh, operational_emissions_gco2,
-         embodied_emissions_gco2, total_emissions_gco2, sci, classification, tables_involved, hardware_config)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         embodied_emissions_gco2, total_emissions_gco2, sci, sustainability_score, classification, tables_involved, hardware_config)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id, created_at`,
       [
         data.query_text, data.database_name, data.runtime_s, data.energy_kwh,
         data.operational_emissions_gco2, data.embodied_emissions_gco2,
-        data.total_emissions_gco2, data.sci, data.classification,
+        data.total_emissions_gco2, data.sci, data.sustainability_score, data.classification,
         data.tables_involved, JSON.stringify(data.hardware_config),
       ]
     );
@@ -185,7 +192,25 @@ async function getDashboardStats(days = 30) {
         COALESCE(SUM(total_emissions_gco2), 0) AS total_co2_g,
         COUNT(*) FILTER (WHERE classification = 'HIGH IMPACT') AS high_impact,
         COUNT(*) FILTER (WHERE classification = 'SUSTAINABLE') AS sustainable,
-        COALESCE(AVG(total_emissions_gco2), 0) AS avg_gco2_per_query
+        COALESCE(AVG(total_emissions_gco2), 0) AS avg_gco2_per_query,
+        COALESCE(
+          AVG(
+            COALESCE(
+              sustainability_score,
+              CASE UPPER(classification)
+                WHEN 'EXCELLENT' THEN 95
+                WHEN 'SUSTAINABLE' THEN 95
+                WHEN 'GOOD' THEN 80
+                WHEN 'MODERATE' THEN 60
+                WHEN 'POOR' THEN 35
+                WHEN 'CRITICAL' THEN 15
+                WHEN 'HIGH IMPACT' THEN 15
+                ELSE NULL
+              END
+            )
+          ),
+          0
+        ) AS avg_sustainability_score
       FROM querycarbon_history
       WHERE created_at >= NOW() - INTERVAL '${d} days'
     `);

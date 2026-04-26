@@ -123,9 +123,10 @@ export default function Dashboard() {
   const dist   = data?.distribution;
   const total  = parseInt(stats?.total_queries || 0);
 
-  const avgScore = Math.max(0, Math.min(100, Math.round(
-    100 - (parseFloat(stats?.avg_gco2_per_query || 0) / 10) * 100
-  )));
+  const avgSustainabilityRaw = parseFloat(stats?.avg_sustainability_score);
+  const avgScore = Number.isFinite(avgSustainabilityRaw)
+    ? Math.max(0, Math.min(100, Math.round(avgSustainabilityRaw)))
+    : null;
 
   const trendData = trend.map(r => ({
     day: new Date(r.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -176,7 +177,7 @@ export default function Dashboard() {
             <span className="kpi-label">Avg Sustainability Score</span>
             <span className="material-symbols-outlined kpi-icon">eco</span>
           </div>
-          <div className="kpi-value green">{loading ? '—' : `${avgScore}/100`}</div>
+          <div className="kpi-value green">{loading ? '—' : (avgScore == null ? '—' : `${avgScore}/100`)}</div>
           <div className="kpi-trend neutral">
             Score target: 90+
           </div>
