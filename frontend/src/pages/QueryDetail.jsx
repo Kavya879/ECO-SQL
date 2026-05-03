@@ -23,10 +23,25 @@ export default function QueryDetail() {
   const [optLoading, setOptLoading] = useState(false);
   const [optError, setOptError]   = useState(null);
   const [activeTab, setTab]       = useState('details');
+  const [optMeta, setOptMeta]     = useState({
+    hypopg_available: null,
+    pg_hint_plan_available: null,
+    total_sci_delta_estimated: null,
+    note: null,
+  });
+  const [optimizeComplete, setOptimizeComplete] = useState(false);
 
   /* Fetch stored query record */
   useEffect(() => {
     setLoading(true);
+    setFindings([]);
+    setOptimizeComplete(false);
+    setOptMeta({
+      hypopg_available: null,
+      pg_hint_plan_available: null,
+      total_sci_delta_estimated: null,
+      note: null,
+    });
     getHistoryById(id)
       .then(data => {
         setRow(data.row || data);
@@ -38,22 +53,25 @@ export default function QueryDetail() {
       });
   }, [id]);
 
-  /* Auto-run optimizer once row is loaded */
   const runOptimize = useCallback(async (queryId) => {
     setOptLoading(true); setOptError(null);
     try {
       const res = await optimizeQuery(queryId);
       const f = res.findings || [];
       setFindings(f);
+      setOptMeta({
+        hypopg_available: res.hypopg_available ?? null,
+        pg_hint_plan_available: res.pg_hint_plan_available ?? null,
+        total_sci_delta_estimated: res.total_sci_delta_estimated ?? null,
+        note: res.note ?? null,
+      });
+      setOptimizeComplete(true);
       if (f.length > 0) setTab('optimization');
     } catch (e) {
+      setOptimizeComplete(false);
       setOptError(e.response?.data?.error || e.message);
     } finally { setOptLoading(false); }
   }, []);
-
-  useEffect(() => {
-    if (row?.id) runOptimize(row.id);
-  }, [row, runOptimize]);
 
   const openInEditor = (sql) => {
     sessionStorage.setItem('queryToCopy', sql || '');
@@ -100,6 +118,14 @@ export default function QueryDetail() {
             <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{tc.icon}</span>
             {row?.classification || 'UNKNOWN'}
           </span>
+          <button
+            className="btn btn-outline btn-sm"
+            disabled={optLoading || !row?.id}
+            onClick={() => row?.id && runOptimize(row.id)}
+          >
+            <span className="material-symbols-outlined sz-16">tips_and_updates</span>
+            {optLoading ? 'Optimizing…' : 'Run optimization'}
+          </button>
           <button
             className="btn btn-primary btn-sm"
             onClick={() => openInEditor(row?.query_text)}
@@ -177,6 +203,34 @@ export default function QueryDetail() {
 
         {activeTab === 'optimization' && (
           <div style={{ padding: 16 }}>
+            {!optLoading && optMeta.hypopg_available != null && (
+              <div className="extension-status-bar">
+                <span className={`extension-pill${optMeta.hypopg_available ? ' ok' : ' off'}`}>
+                  <span className="material-symbols-outlined sz-16">database</span>
+                  hypopg {optMeta.hypopg_available ? 'on target DB' : 'not installed'}
+                </span>
+                <span className={`extension-pill${optMeta.pg_hint_plan_available ? ' ok' : ' off'}`}>
+                  <span className="material-symbols-outlined sz-16">psychology</span>
+                  pg_hint_plan {optMeta.pg_hint_plan_available ? 'on target DB' : 'not installed'}
+                </span>
+                {optMeta.total_sci_delta_estimated != null && (
+                  <span className="extension-pill ok">
+                    <span className="material-symbols-outlined sz-16">eco</span>
+                    Est. ΔSCI (sim.) {fmtGco2(optMeta.total_sci_delta_estimated)} gCO₂eq
+                  </span>
+                )}
+              </div>
+            )}
+            {optMeta.note && !optLoading && (
+              <div className="empty-text" style={{ marginBottom: 12, textAlign: 'left' }}>
+                {optMeta.note}
+              </div>
+            )}
+            {findings.length === 0 && !optLoading && !optError && !optimizeComplete && (
+              <div className="empty-text" style={{ marginBottom: 16 }}>
+                Click <strong>Run optimization</strong> above to analyze EXPLAIN patterns, optional hypopg / pg_hint_plan simulations, and SQL rewrite rules.
+              </div>
+            )}
             {optLoading && (
               <div className="opt-scanning">
                 <span className="spinner" />
@@ -189,7 +243,7 @@ export default function QueryDetail() {
                 {optError}
               </div>
             )}
-            {!optLoading && !optError && findings.length === 0 && (
+            {!optLoading && !optError && optimizeComplete && findings.length === 0 && (
               <div className="empty-state" style={{ padding: '24px 0' }}>
                 <span className="material-symbols-outlined empty-icon" style={{ color: 'var(--green)' }}>verified</span>
                 <div className="empty-text"><strong>No optimization issues found.</strong></div>

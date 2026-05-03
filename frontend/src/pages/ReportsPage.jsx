@@ -101,7 +101,7 @@ export default function ReportsPage() {
       <div className="page-head">
         <div>
           <div className="page-title">Reports &amp; History</div>
-          <div className="page-desc">Analyze past query executions and their carbon footprint.</div>
+          <div className="page-desc">Analyze past query executions and their carbon footprint. Click a row to open full details and optimization.</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-outline btn-sm" onClick={handleClear}>
@@ -202,7 +202,20 @@ export default function ReportsPage() {
                 const isCopied = copiedId === row.id;
                 const runtimeMs = row.runtime_s ? (parseFloat(row.runtime_s) * 1000).toFixed(0) : '—';
                 return (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    role="button"
+                    tabIndex={0}
+                    title="View query details & optimization"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate(`/query/${row.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/query/${row.id}`);
+                      }
+                    }}
+                  >
                     <td className="mono dim" style={{ fontSize: 11 }}>#{row.id}</td>
                     <td className="col-code">
                       <SqlCell sql={row.query_text || ''} />
@@ -220,10 +233,14 @@ export default function ReportsPage() {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <button
+                        type="button"
                         className="topbar-btn"
                         title="Open in editor"
                         style={{ color: isCopied ? 'var(--green)' : undefined }}
-                        onClick={() => copyToEditor(row.query_text, row.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToEditor(row.query_text, row.id);
+                        }}
                       >
                         <span className="material-symbols-outlined sz-16">
                           {isCopied ? 'check' : 'edit'}

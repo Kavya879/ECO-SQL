@@ -230,4 +230,4 @@ async function clearHistory(days) {
   }
 }
 
-module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getHistoryById, getDashboardStats, clearHistory };
+module.exports = { defaultPool, getPoolForDatabase, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getHistoryById, getDashboardStats, clearHistory };

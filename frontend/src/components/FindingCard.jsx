@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import IndexDDLBadge from './IndexDDLBadge.jsx';
 
 const SEVERITY_CONFIG = {
   high:   { label: 'High Impact',   cls: 'high',   icon: 'warning' },
@@ -13,8 +14,16 @@ function normalizeSev(sev = '') {
   return 'low';
 }
 
+function formatDelta(n) {
+  if (n == null || Number.isNaN(Number(n))) return '—';
+  const v = Number(n);
+  const rounded = Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(4);
+  return v > 0 ? `+${rounded}` : rounded;
+}
+
 export default function FindingCard({ finding }) {
   const [expanded, setExpanded] = useState(false);
+  const [hintCopied, setHintCopied] = useState(false);
 
   const sev = normalizeSev(finding.severity);
   const cfg = SEVERITY_CONFIG[sev];
@@ -25,6 +34,23 @@ export default function FindingCard({ finding }) {
   const ddlText    = finding.index_ddl   || null;
   const beforeCode = finding.before      || null;
   const afterCode  = finding.after       || null;
+
+  const trackLabel = finding.track === 'sql_pattern'
+    ? 'SQL pattern'
+    : finding.track === 'explain_analysis'
+      ? 'EXPLAIN'
+      : finding.track || '';
+
+  const copyHint = async () => {
+    if (!finding.hinted_query) return;
+    try {
+      await navigator.clipboard.writeText(finding.hinted_query);
+      setHintCopied(true);
+      setTimeout(() => setHintCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
     <div className={`finding-card ${sev} fade-in`}>
@@ -38,6 +64,59 @@ export default function FindingCard({ finding }) {
           {cfg.label}
         </div>
       </div>
+
+      {(trackLabel || finding.simulation || finding.hint_simulation) && (
+        <div className="finding-meta-row">
+          {trackLabel && <span className="finding-meta-pill">{trackLabel}</span>}
+          {finding.simulation && (
+            <span className="finding-meta-pill">index sim: {finding.simulation}</span>
+          )}
+          {finding.hint_simulation && (
+            <span className="finding-meta-pill">hint sim: {finding.hint_simulation}</span>
+          )}
+          {(finding.cost_delta != null || finding.hint_cost_delta != null) && (
+            <span className="finding-meta-pill">
+              Δcost{' '}
+              {finding.cost_delta != null
+                ? formatDelta(finding.cost_delta)
+                : formatDelta(finding.hint_cost_delta)}
+            </span>
+          )}
+          {(finding.sci_delta != null || finding.hint_sci_delta != null) && (
+            <span className="finding-meta-pill">
+              ΔSCI{' '}
+              {finding.sci_delta != null
+                ? `${formatDelta(finding.sci_delta)} gCO₂eq`
+                : `${formatDelta(finding.hint_sci_delta)} gCO₂eq`}
+            </span>
+          )}
+        </div>
+      )}
+
+      {ddlText && (
+        <IndexDDLBadge ddl={ddlText} simulation={finding.simulation} />
+      )}
+
+      {finding.hinted_query && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            className="ddl-copy-chip ddl-chip-evidence"
+            onClick={copyHint}
+            title="Copy hinted query"
+          >
+            <span className="material-symbols-outlined sz-16">
+              {hintCopied ? 'check' : 'psychology'}
+            </span>
+            <span className="ddl-chip-ddl" style={{ whiteSpace: 'pre-wrap' }}>
+              {finding.hinted_query.length > 120
+                ? `${finding.hinted_query.slice(0, 120)}…`
+                : finding.hinted_query}
+            </span>
+            <span className="ddl-chip-badge">{hintCopied ? 'Copied' : 'Hint query'}</span>
+          </button>
+        </div>
+      )}
 
       {(beforeCode || afterCode) && (
         <div style={{ marginTop: 12 }}>
@@ -106,12 +185,7 @@ export default function FindingCard({ finding }) {
       )}
 
       <div className="finding-footer">
-        {ddlText ? (
-          <span className="finding-ddl" title={ddlText}>
-            <span className="material-symbols-outlined sz-16">add_circle</span>
-            {ddlText.length > 60 ? ddlText.slice(0, 60) + '…' : ddlText}
-          </span>
-        ) : (
+        {!ddlText && (
           <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
             {id}
           </span>

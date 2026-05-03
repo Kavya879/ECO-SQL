@@ -392,6 +392,20 @@ function calculateAll({
   };
 }
 
+/**
+ * Cost-to-SCI proxy for optimization delta calculation.
+ * Computes estimated SCI delta from planner cost delta using a linear proportion.
+ *
+ * @param {number} costDelta - cost_after - cost_before (negative = improvement)
+ * @param {number} basePlannerCost - planner cost before optimization
+ * @param {number} baseSci - SCI of the original query (gCO2eq/query)
+ * @returns {number|null} Estimated sci_delta (gCO2eq), or null if inputs invalid
+ */
+function costToSciDelta(costDelta, basePlannerCost, baseSci) {
+  if (!basePlannerCost || basePlannerCost <= 0 || baseSci == null || baseSci <= 0) return null;
+  return (costDelta / basePlannerCost) * baseSci;
+}
+
 module.exports = {
   calculateAll,
   calculateEnergy,
@@ -405,6 +419,7 @@ module.exports = {
   normalizeCost,
   normalizeDuration,
   extractTables,
+  costToSciDelta,
   clamp,
   DEFAULTS,
   WEIGHTS,
