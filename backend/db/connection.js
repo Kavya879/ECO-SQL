@@ -208,7 +208,35 @@ async function getDashboardStats(days = 30) {
       FROM querycarbon_history
       WHERE created_at >= NOW() - INTERVAL '${d} days'
     `);
-    return { stats: stats.rows[0], trend: trend.rows, recent: recent.rows, distribution: pie.rows[0] };
+    const scatterAgg = await client.query(`
+      SELECT
+        MIN(hashtext(trim(both FROM query_text)))::text AS query_fingerprint,
+        COUNT(*)::int AS run_frequency,
+        AVG(sci)::double precision AS avg_sci_gco2eq_per_query,
+        MAX(created_at) AS last_run_at,
+        MIN(query_text) AS snippet_source
+      FROM querycarbon_history
+      WHERE created_at >= NOW() - INTERVAL '${d} days'
+      GROUP BY hashtext(trim(both FROM query_text))
+    `);
+    const scatter = scatterAgg.rows
+      .map((row) => {
+        const avg = row.avg_sci_gco2eq_per_query;
+        if (avg == null || Number.isNaN(Number(avg))) return null;
+        const snippet = String(row.snippet_source || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 120);
+        return {
+          queryFingerprint: row.query_fingerprint,
+          runFrequency: Number(row.run_frequency) || 0,
+          avgSciGco2eqPerQuery: Number(avg),
+          snippet,
+          lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : null,
+        };
+      })
+      .filter(Boolean);
+    return { stats: stats.rows[0], trend: trend.rows, recent: recent.rows, distribution: pie.rows[0], scatter };
   } finally {
     client.release();
   }

@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { analyzeQuery, getDatabases, getHardwareConfig, optimizeQuery } from '../api/api.js';
 import { fmtEnergy, fmtGco2, fmtRuntime } from '../utils/format.js';
 import FindingCard from '../components/FindingCard.jsx';
+import ExplainPlanTree from '../components/ExplainPlanTree.jsx';
+import SciBeforeAfterBarChart from '../components/SciBeforeAfterBarChart.jsx';
+import ScaleContextPanel from '../components/ScaleContextPanel.jsx';
+import ScaledEmissionsCard from '../components/ScaledEmissionsCard.jsx';
+import RealLifeEquivalentsCard from '../components/RealLifeEquivalentsCard.jsx';
+import { useScaleMultiplier } from '../context/ScaleMultiplierContext.jsx';
 
 const SQL_DRAFT_KEY = 'analyzeSqlDraft';
 
@@ -23,6 +29,23 @@ function tierInfo(cls) {
   if (c === 'POOR')
     return { pillCls: 'tier-poor',      numCls: 'red',   icon: 'error' };
   return   { pillCls: 'tier-critical',  numCls: 'red',   icon: 'dangerous' };
+}
+
+function ScaledAnalyzeBlock({ sciBefore, totalSciDeltaEstimated }) {
+  const { effectiveMultiplier } = useScaleMultiplier();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+      <ScaledEmissionsCard
+        sciBefore={sciBefore}
+        totalSciDeltaEstimated={totalSciDeltaEstimated}
+        effectiveMultiplier={effectiveMultiplier}
+      />
+      <RealLifeEquivalentsCard
+        sciBefore={sciBefore}
+        totalSciDeltaEstimated={totalSciDeltaEstimated}
+      />
+    </div>
+  );
 }
 
 export default function AnalyzePage() {
@@ -379,6 +402,39 @@ export default function AnalyzePage() {
             </div>
           </div>
 
+          {result && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-header">
+                <span className="card-title">
+                  <span className="material-symbols-outlined sz-16">account_tree</span>
+                  Query plan (EXPLAIN)
+                </span>
+              </div>
+              <div style={{ padding: '12px 16px' }}>
+                {optimizing && !optResult ? (
+                  <div className="opt-scanning">
+                    <span className="spinner" />
+                    Building plan visual…
+                  </div>
+                ) : (
+                  <ExplainPlanTree
+                    explainPlan={optResult?.explain_plan}
+                    findings={optResult?.findings || []}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {result && (
+            <ScaleContextPanel>
+              <ScaledAnalyzeBlock
+                sciBefore={result.sci}
+                totalSciDeltaEstimated={optResult?.total_sci_delta_estimated ?? null}
+              />
+            </ScaleContextPanel>
+          )}
+
           {/* Tabs: Results | Optimization */}
           <div className="card">
             <div className="panel-tabs">
@@ -468,6 +524,12 @@ export default function AnalyzePage() {
             {/* Optimization tab */}
             {activeTab === 'optimization' && (
               <div style={{ padding: '16px' }}>
+                {!optimizing && result && (
+                  <SciBeforeAfterBarChart
+                    sciBefore={result.sci}
+                    totalSciDeltaEstimated={optResult?.total_sci_delta_estimated ?? null}
+                  />
+                )}
                 {optimizing && (
                   <div className="opt-scanning">
                     <span className="spinner" />

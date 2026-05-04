@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import { getDashboard } from '../api/api.js';
 import { fmtGco2, fmtRuntime, fmtTimeAgo } from '../utils/format.js';
+import QueryVolumeSciScatter from '../components/QueryVolumeSciScatter.jsx';
 
 const DAYS_OPTIONS = [7, 30, 90];
 
@@ -121,6 +122,7 @@ export default function Dashboard() {
   const trend  = data?.trend  || [];
   const recent = data?.recent || [];
   const dist   = data?.distribution;
+  const scatter = data?.scatter || [];
   const total  = parseInt(stats?.total_queries || 0);
 
   const avgScore = Math.max(0, Math.min(100, Math.round(
@@ -286,6 +288,22 @@ export default function Dashboard() {
             <TierDonut dist={dist} total={total} />
           )}
         </div>
+      </div>
+
+      <div className="chart-card" style={{ marginBottom: 20 }}>
+        <div className="chart-card-title">
+          Query volume vs SCI
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>
+            Fingerprint grouping · Last {days} days
+          </span>
+        </div>
+        {loading ? (
+          <div className="empty-state" style={{ flex: 1, minHeight: 200 }}>
+            <span className="spinner" style={{ margin: '0 auto' }} />
+          </div>
+        ) : (
+          <QueryVolumeSciScatter points={scatter} />
+        )}
       </div>
 
       {/* Recent Heavy Queries */}

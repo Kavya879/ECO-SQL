@@ -267,12 +267,14 @@ async function optimizeQuery(req, res) {
 
     if (!databaseName) {
       const ranked = mergeAndRank([], sqlPatternFindings);
+      const enriched = ranked.map(enrichFinding);
       return res.json({
         query_id: resolvedQueryId,
         hypopg_available: false,
         pg_hint_plan_available: false,
-        findings: ranked.map(enrichFinding),
-        total_sci_delta_estimated: null,
+        explain_plan: null,
+        findings: enriched,
+        total_sci_delta_estimated: computeTotalSciDeltaEstimated(enriched),
         note:
           'No target database available — only SQL pattern rules ran. Provide a saved query_id with database_name or pass database with sql.',
       });
@@ -330,6 +332,7 @@ async function optimizeQuery(req, res) {
         query_id: resolvedQueryId,
         hypopg_available: hypopgAvailable,
         pg_hint_plan_available: pgHintPlanAvailable,
+        explain_plan: queryPlan ?? null,
         findings: enriched,
         total_sci_delta_estimated: computeTotalSciDeltaEstimated(enriched),
       });

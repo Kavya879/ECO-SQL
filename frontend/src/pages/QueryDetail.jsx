@@ -3,6 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getHistoryById, optimizeQuery } from '../api/api.js';
 import { fmtGco2, fmtEnergy, fmtRuntime, fmtTimeAgo } from '../utils/format.js';
 import FindingCard from '../components/FindingCard.jsx';
+import ExplainPlanTree from '../components/ExplainPlanTree.jsx';
+import SciBeforeAfterBarChart from '../components/SciBeforeAfterBarChart.jsx';
+import ScaleContextPanel from '../components/ScaleContextPanel.jsx';
+import ScaledEmissionsCard from '../components/ScaledEmissionsCard.jsx';
+import RealLifeEquivalentsCard from '../components/RealLifeEquivalentsCard.jsx';
+import { useScaleMultiplier } from '../context/ScaleMultiplierContext.jsx';
 
 function tierInfo(cls) {
   const c = String(cls || '').toUpperCase();
@@ -11,6 +17,23 @@ function tierInfo(cls) {
   if (c === 'MODERATE') return { pillCls: 'tier-moderate', icon: 'warning' };
   if (c === 'POOR')     return { pillCls: 'tier-poor',     icon: 'error' };
   return                       { pillCls: 'tier-critical', icon: 'dangerous' };
+}
+
+function QueryScaledStrip({ sciBefore, totalSciDeltaEstimated }) {
+  const { effectiveMultiplier } = useScaleMultiplier();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+      <ScaledEmissionsCard
+        sciBefore={sciBefore}
+        totalSciDeltaEstimated={totalSciDeltaEstimated}
+        effectiveMultiplier={effectiveMultiplier}
+      />
+      <RealLifeEquivalentsCard
+        sciBefore={sciBefore}
+        totalSciDeltaEstimated={totalSciDeltaEstimated}
+      />
+    </div>
+  );
 }
 
 export default function QueryDetail() {
@@ -30,12 +53,14 @@ export default function QueryDetail() {
     note: null,
   });
   const [optimizeComplete, setOptimizeComplete] = useState(false);
+  const [explainPlan, setExplainPlan] = useState(null);
 
   /* Fetch stored query record */
   useEffect(() => {
     setLoading(true);
     setFindings([]);
     setOptimizeComplete(false);
+    setExplainPlan(null);
     setOptMeta({
       hypopg_available: null,
       pg_hint_plan_available: null,
@@ -59,6 +84,7 @@ export default function QueryDetail() {
       const res = await optimizeQuery(queryId);
       const f = res.findings || [];
       setFindings(f);
+      setExplainPlan(res.explain_plan ?? null);
       setOptMeta({
         hypopg_available: res.hypopg_available ?? null,
         pg_hint_plan_available: res.pg_hint_plan_available ?? null,
@@ -69,6 +95,7 @@ export default function QueryDetail() {
       if (f.length > 0) setTab('optimization');
     } catch (e) {
       setOptimizeComplete(false);
+      setExplainPlan(null);
       setOptError(e.response?.data?.error || e.message);
     } finally { setOptLoading(false); }
   }, []);
@@ -160,6 +187,29 @@ export default function QueryDetail() {
         ))}
       </div>
 
+      {row && optimizeComplete && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <span className="card-title">
+              <span className="material-symbols-outlined sz-16">account_tree</span>
+              Query plan (EXPLAIN)
+            </span>
+          </div>
+          <div style={{ padding: '12px 16px' }}>
+            <ExplainPlanTree explainPlan={explainPlan} findings={findings} />
+          </div>
+        </div>
+      )}
+
+      {row && optimizeComplete && (
+        <ScaleContextPanel>
+          <QueryScaledStrip
+            sciBefore={row.sci}
+            totalSciDeltaEstimated={optMeta.total_sci_delta_estimated ?? null}
+          />
+        </ScaleContextPanel>
+      )}
+
       {/* SQL + Optimization tabs */}
       <div className="card">
         <div className="panel-tabs">
@@ -203,6 +253,12 @@ export default function QueryDetail() {
 
         {activeTab === 'optimization' && (
           <div style={{ padding: 16 }}>
+            {!optLoading && optimizeComplete && (
+              <SciBeforeAfterBarChart
+                sciBefore={row?.sci}
+                totalSciDeltaEstimated={optMeta.total_sci_delta_estimated ?? null}
+              />
+            )}
             {!optLoading && optMeta.hypopg_available != null && (
               <div className="extension-status-bar">
                 <span className={`extension-pill${optMeta.hypopg_available ? ' ok' : ' off'}`}>
