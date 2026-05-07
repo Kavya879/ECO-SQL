@@ -261,18 +261,37 @@ export default function QueryDetail() {
             )}
             {!optLoading && optMeta.hypopg_available != null && (
               <div className="extension-status-bar">
-                <span className={`extension-pill${optMeta.hypopg_available ? ' ok' : ' off'}`}>
-                  <span className="material-symbols-outlined sz-16">database</span>
-                  hypopg {optMeta.hypopg_available ? 'on target DB' : 'not installed'}
+                <span style={{ fontSize: 11, color: 'var(--text-dim)', alignSelf: 'center' }}>
+                  Extension status:
                 </span>
-                <span className={`extension-pill${optMeta.pg_hint_plan_available ? ' ok' : ' off'}`}>
+                <span
+                  className={`extension-pill${optMeta.hypopg_available ? ' ok' : ' off'}`}
+                  style={{ cursor: 'default' }}
+                  title={optMeta.hypopg_available
+                    ? 'hypopg is installed — hypothetical index simulations ran. See findings below for Δcost / ΔSCI results.'
+                    : 'hypopg is not installed on this database. Run: CREATE EXTENSION hypopg; to enable index simulations.'}
+                >
+                  <span className="material-symbols-outlined sz-16">database</span>
+                  hypopg {optMeta.hypopg_available ? 'active' : 'not installed'}
+                </span>
+                <span
+                  className={`extension-pill${optMeta.pg_hint_plan_available ? ' ok' : ' off'}`}
+                  style={{ cursor: 'default' }}
+                  title={optMeta.pg_hint_plan_available
+                    ? 'pg_hint_plan is installed — query hint simulations ran. See findings below for hinted queries and ΔSCI.'
+                    : 'pg_hint_plan is not installed on this database. Run: CREATE EXTENSION pg_hint_plan; to enable hint simulations.'}
+                >
                   <span className="material-symbols-outlined sz-16">psychology</span>
-                  pg_hint_plan {optMeta.pg_hint_plan_available ? 'on target DB' : 'not installed'}
+                  pg_hint_plan {optMeta.pg_hint_plan_available ? 'active' : 'not installed'}
                 </span>
                 {optMeta.total_sci_delta_estimated != null && (
-                  <span className="extension-pill ok">
+                  <span
+                    className="extension-pill ok"
+                    style={{ cursor: 'default' }}
+                    title="Total estimated SCI reduction across all simulated findings"
+                  >
                     <span className="material-symbols-outlined sz-16">eco</span>
-                    Est. ΔSCI (sim.) {fmtGco2(optMeta.total_sci_delta_estimated)} gCO₂eq
+                    Est. ΔSCI {fmtGco2(optMeta.total_sci_delta_estimated)} gCO₂eq
                   </span>
                 )}
               </div>

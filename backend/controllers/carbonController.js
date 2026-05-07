@@ -34,7 +34,7 @@ function computeTotalSciDeltaEstimated(findings) {
       any = true;
     }
   }
-  return any ? Math.round(sum * 1000) / 1000 : null;
+  return any ? Math.round(sum * 1e7) / 1e7 : null;
 }
 
 /**

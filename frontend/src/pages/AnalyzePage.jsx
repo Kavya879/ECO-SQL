@@ -530,6 +530,43 @@ export default function AnalyzePage() {
                     totalSciDeltaEstimated={optResult?.total_sci_delta_estimated ?? null}
                   />
                 )}
+                {!optimizing && optResult?.hypopg_available != null && (
+                  <div className="extension-status-bar">
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)', alignSelf: 'center' }}>
+                      Extension status:
+                    </span>
+                    <span
+                      className={`extension-pill${optResult.hypopg_available ? ' ok' : ' off'}`}
+                      style={{ cursor: 'default' }}
+                      title={optResult.hypopg_available
+                        ? 'hypopg is installed — hypothetical index simulations ran. See findings below for Δcost / ΔSCI results.'
+                        : 'hypopg is not installed on this database. Run: CREATE EXTENSION hypopg; to enable index simulations.'}
+                    >
+                      <span className="material-symbols-outlined sz-16">database</span>
+                      hypopg {optResult.hypopg_available ? 'active' : 'not installed'}
+                    </span>
+                    <span
+                      className={`extension-pill${optResult.pg_hint_plan_available ? ' ok' : ' off'}`}
+                      style={{ cursor: 'default' }}
+                      title={optResult.pg_hint_plan_available
+                        ? 'pg_hint_plan is installed — query hint simulations ran. See findings below for hinted queries and ΔSCI.'
+                        : 'pg_hint_plan is not installed on this database. Run: CREATE EXTENSION pg_hint_plan; to enable hint simulations.'}
+                    >
+                      <span className="material-symbols-outlined sz-16">psychology</span>
+                      pg_hint_plan {optResult.pg_hint_plan_available ? 'active' : 'not installed'}
+                    </span>
+                    {optResult.total_sci_delta_estimated != null && (
+                      <span
+                        className="extension-pill ok"
+                        style={{ cursor: 'default' }}
+                        title="Total estimated SCI reduction across all simulated findings"
+                      >
+                        <span className="material-symbols-outlined sz-16">eco</span>
+                        Est. ΔSCI {fmtGco2(optResult.total_sci_delta_estimated)} gCO₂eq
+                      </span>
+                    )}
+                  </div>
+                )}
                 {optimizing && (
                   <div className="opt-scanning">
                     <span className="spinner" />

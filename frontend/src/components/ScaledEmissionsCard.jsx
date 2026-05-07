@@ -13,7 +13,7 @@ export default function ScaledEmissionsCard({ sciBefore, totalSciDeltaEstimated,
   const D = totalSciDeltaEstimated != null ? Number(totalSciDeltaEstimated) : null;
   const hasAfter = D != null && Number.isFinite(D);
 
-  const sciAfter = hasAfter ? B + D : B;
+  const sciAfter = hasAfter ? Math.max(0, B + D) : B;
 
   if (!Number.isFinite(B) || B < 0) return null;
 
@@ -69,7 +69,7 @@ export default function ScaledEmissionsCard({ sciBefore, totalSciDeltaEstimated,
             )}
             {hasAfter && row.savings != null && row.savings > 1e-9 && (
               <div style={{ marginTop: 8, fontSize: 11, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>
-                Saved −{fmtMass(row.savings).value} {fmtMass(row.savings).unit}
+                Saved {fmtMass(row.savings).value} {fmtMass(row.savings).unit}
               </div>
             )}
           </div>
@@ -78,9 +78,9 @@ export default function ScaledEmissionsCard({ sciBefore, totalSciDeltaEstimated,
 
       {hasAfter && D < 0 && (
         <div style={{ marginTop: 14, fontSize: 11, color: 'var(--text-muted)' }}>
-          Est. ΔSCI total (simulations):{' '}
+          Est. ΔSCI (simulations):{' '}
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>{fmtGco2(D)} gCO₂eq</span>{' '}
-          · Savings per run ≈ −{fmtGco2(D)} gCO₂eq · At selected scale: −{fmtGco2(-D * effectiveMultiplier)} gCO₂eq total avoided
+          · Savings per run ≈ {fmtGco2(Math.abs(D))} gCO₂eq · At selected scale: {fmtGco2(Math.abs(D) * effectiveMultiplier)} gCO₂eq total avoided
           (SCI × {effectiveMultiplier.toLocaleString()} hits).
         </div>
       )}
@@ -102,7 +102,7 @@ export default function ScaledEmissionsCard({ sciBefore, totalSciDeltaEstimated,
           </span>
           {hasAfter && summarySavings != null && summarySavings > 1e-9 && (
             <span style={{ color: 'var(--green)' }}>
-              Saved −{formatMassCo2Eq(summarySavings).value} {formatMassCo2Eq(summarySavings).unit}
+              Saved {formatMassCo2Eq(summarySavings).value} {formatMassCo2Eq(summarySavings).unit}
             </span>
           )}
         </div>

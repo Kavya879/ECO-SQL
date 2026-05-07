@@ -62,6 +62,24 @@ function detectFunctionInFilter(filterExpr) {
   };
 }
 
+/**
+ * Walk a plan node (and its children) to find the first real Relation Name or Alias.
+ * Needed because Hash Join wraps its inner side in a Hash node (no Relation Name),
+ * and outer sides of multi-table joins may also be intermediate join nodes.
+ */
+function firstRelationName(node) {
+  if (!node) return null;
+  if (node['Relation Name']) return node['Relation Name'];
+  if (node['Alias']) return node['Alias'];
+  if (Array.isArray(node.Plans)) {
+    for (const child of node.Plans) {
+      const name = firstRelationName(child);
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
 function analyzeExplainJson(explainJson) {
   const root = extractRootPlan(explainJson);
   if (!root) return [];
@@ -170,8 +188,8 @@ function analyzeExplainJson(explainJson) {
     if (nodeType === 'Nested Loop' && Array.isArray(node.Plans) && node.Plans.length >= 2) {
       const outerRows = Number(node.Plans[0]['Actual Rows'] ?? node.Plans[0]['Plan Rows'] ?? 0);
       if (outerRows > 1000) {
-        const t1 = node.Plans[0]['Relation Name'] || node.Plans[0]['Alias'] || 'table1';
-        const t2 = node.Plans[1]['Relation Name'] || node.Plans[1]['Alias'] || 'table2';
+        const t1 = firstRelationName(node.Plans[0]) || 'table1';
+        const t2 = firstRelationName(node.Plans[1]) || 'table2';
         const sev = outerRows >= 10000 ? 'high' : 'medium';
         addFinding({
           pattern_id: 'NESTED_LOOP_LARGE',
@@ -261,8 +279,8 @@ function analyzeExplainJson(explainJson) {
       const r1 = Number(node.Plans[0]['Actual Rows'] ?? 0);
       const r2 = Number(node.Plans[1]['Actual Rows'] ?? 0);
       if (r1 < 100 && r2 < 100) {
-        const t1 = node.Plans[0]['Relation Name'] || 'table1';
-        const t2 = node.Plans[1]['Relation Name'] || 'table2';
+        const t1 = firstRelationName(node.Plans[0]) || 'table1';
+        const t2 = firstRelationName(node.Plans[1]) || 'table2';
         addFinding({
           pattern_id: 'HASH_JOIN_TINY',
           severity: 'low',
