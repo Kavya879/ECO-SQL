@@ -49,9 +49,13 @@ function detectFunctionInFilter(filterExpr) {
   if (!filterExpr) return null;
   const fnMatch = filterExpr.match(/\b(lower|upper|date|to_char|extract|coalesce|cast)\s*\(/i);
   if (!fnMatch) {
-    // Also detect :: cast coercion
-    if (!filterExpr.includes('::')) return null;
-    return { fn: 'cast', column: null, expression: null, hasCast: true };
+    // Only flag :: cast when it is applied to a column name (word characters before ::).
+    // Filters like  payment_date >= '2007-01-01'::timestamp  have the cast on the constant,
+    // not the column, so they should fall through to the plain P1 SEQ_SCAN handler instead.
+    const colCastMatch = filterExpr.match(/\b([a-zA-Z_]\w*)\s*::/);
+    if (!colCastMatch) return null;
+    const col = colCastMatch[1];
+    return { fn: 'cast', column: col, expression: col, hasCast: true };
   }
   const innerMatch = filterExpr.match(/\b(?:lower|upper|date|to_char|extract|coalesce|cast)\s*\(\s*([a-zA-Z_]\w*)/i);
   return {
