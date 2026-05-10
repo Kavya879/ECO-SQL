@@ -14,11 +14,64 @@ function normalizeSev(sev = '') {
   return 'low';
 }
 
-function formatDelta(n) {
-  if (n == null || Number.isNaN(Number(n))) return '—';
-  const v = Number(n);
-  const rounded = Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(4);
-  return v > 0 ? `+${rounded}` : rounded;
+function formatIntText(value) {
+  const n = Number(String(value || '').replace(/,/g, ''));
+  if (Number.isNaN(n)) return value;
+  return n.toLocaleString();
+}
+
+function splitDescription(description = '') {
+  const text = String(description || '').trim();
+  if (!text) return { rationale: '', recommendation: '' };
+
+  const parts = text.split(' · ').map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return { rationale: parts[0], recommendation: parts.slice(1).join(' · ') };
+  }
+
+  return { rationale: text, recommendation: '' };
+}
+
+function looksLikeSql(text = '') {
+  return /^(create|select|with|alter|drop|insert|update|delete|analyze|explain)\b/i.test(
+    String(text || '').trim()
+  );
+}
+
+function humanizeRationale(rawText, finding) {
+  const raw = String(rawText || '').trim();
+  if (!raw) return '';
+
+  if (String(finding.pattern_id || '') === 'SEQ_SCAN_FILTER') {
+    const table = finding.table || 'this table';
+    const examined = raw.match(/examined\s+([\d,]+)\s+rows/i)?.[1];
+    const removed = raw.match(/removed\s+([\d,]+)\s+rows/i)?.[1];
+
+    if (examined && removed) {
+      const examinedTxt = formatIntText(examined);
+      const removedCount = Number(String(removed).replace(/,/g, ''));
+      if (!Number.isNaN(removedCount) && removedCount === 0) {
+        return `The database read all ${examinedTxt} rows from ${table}. Since almost nothing was filtered out, this is usually a low-value optimization.`;
+      }
+      return `The database read all ${examinedTxt} rows from ${table} and filtered out ${formatIntText(removed)} rows while processing.`;
+    }
+  }
+
+  return raw;
+}
+
+function humanizeRecommendation(rawText) {
+  const raw = String(rawText || '').trim();
+  if (!raw) return '';
+
+  const idx = raw.match(/^Add a B-tree index on\s+([^\s(]+)\(([^)]+)\)$/i);
+  if (idx) {
+    const table = idx[1];
+    const column = idx[2];
+    return `If this query runs frequently, add an index on ${table}.${column} to reduce full-table scans.`;
+  }
+
+  return raw;
 }
 
 export default function FindingCard({ finding }) {
@@ -28,18 +81,19 @@ export default function FindingCard({ finding }) {
   const sev = normalizeSev(finding.severity);
   const cfg = SEVERITY_CONFIG[sev];
   const id  = finding.rule_id || finding.pattern_id || finding.track || '';
+  const described = splitDescription(finding.description);
 
   const titleText  = finding.title       || finding.pattern || finding.type || id;
-  const bodyText   = finding.description || finding.suggestion || finding.reason || '';
+  const rationaleText = humanizeRationale(
+    finding.laymanReason || finding.rationale || finding.reason || described.rationale,
+    finding
+  );
+  const recommendationText = humanizeRecommendation(
+    finding.whatToDo || finding.suggestion || described.recommendation
+  );
   const ddlText    = finding.index_ddl   || null;
   const beforeCode = finding.before      || null;
   const afterCode  = finding.after       || null;
-
-  const trackLabel = finding.track === 'sql_pattern'
-    ? 'SQL pattern'
-    : finding.track === 'explain_analysis'
-      ? 'EXPLAIN'
-      : finding.track || '';
 
   const copyHint = async () => {
     if (!finding.hinted_query) return;
@@ -57,41 +111,43 @@ export default function FindingCard({ finding }) {
       <div className="finding-head">
         <div style={{ flex: 1 }}>
           <div className="finding-title">{titleText}</div>
-          <div className="finding-body">{bodyText}</div>
+
+          {rationaleText && (
+            <div className="finding-detail-block">
+              <div className="finding-detail-label">Why this matters</div>
+              <div className="finding-body">{rationaleText}</div>
+            </div>
+          )}
+
+          {recommendationText && (
+            <div className="finding-detail-block">
+              <div className="finding-detail-label">Recommended action</div>
+              {looksLikeSql(recommendationText) ? (
+                <pre className="finding-code-inline">{recommendationText}</pre>
+              ) : (
+                <div className="finding-body">{recommendationText}</div>
+              )}
+            </div>
+          )}
+
+          {finding.example?.before && finding.example?.after && (
+            <div className="finding-example-grid">
+              <div className="finding-example-card before">
+                <div className="finding-example-label">Before</div>
+                <pre>{finding.example.before}</pre>
+              </div>
+              <div className="finding-example-card after">
+                <div className="finding-example-label">After</div>
+                <pre>{finding.example.after}</pre>
+              </div>
+            </div>
+          )}
         </div>
         <div className={`finding-impact ${sev}`}>
           <span className="material-symbols-outlined sz-16">{cfg.icon}</span>
           {cfg.label}
         </div>
       </div>
-
-      {(trackLabel || finding.simulation || finding.hint_simulation) && (
-        <div className="finding-meta-row">
-          {trackLabel && <span className="finding-meta-pill">{trackLabel}</span>}
-          {finding.simulation && (
-            <span className="finding-meta-pill">index sim: {finding.simulation}</span>
-          )}
-          {finding.hint_simulation && (
-            <span className="finding-meta-pill">hint sim: {finding.hint_simulation}</span>
-          )}
-          {(finding.cost_delta != null || finding.hint_cost_delta != null) && (
-            <span className="finding-meta-pill">
-              Δcost{' '}
-              {finding.cost_delta != null
-                ? formatDelta(finding.cost_delta)
-                : formatDelta(finding.hint_cost_delta)}
-            </span>
-          )}
-          {(finding.sci_delta != null || finding.hint_sci_delta != null) && (
-            <span className="finding-meta-pill">
-              ΔSCI{' '}
-              {finding.sci_delta != null
-                ? `${formatDelta(finding.sci_delta)} gCO₂eq`
-                : `${formatDelta(finding.hint_sci_delta)} gCO₂eq`}
-            </span>
-          )}
-        </div>
-      )}
 
       {ddlText && (
         <IndexDDLBadge ddl={ddlText} simulation={finding.simulation} />

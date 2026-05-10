@@ -4,23 +4,17 @@ import { pickEquivalents } from '../utils/realLifeEquivalents.js';
 
 export default function RealLifeEquivalentsCard({
   sciBefore,
-  totalSciDeltaEstimated,
-  preferOptimized = true,
 }) {
   const { effectiveMultiplier } = useScaleMultiplier();
 
   const rows = useMemo(() => {
     const B = Number(sciBefore);
     if (!Number.isFinite(B)) return [];
-    const D = totalSciDeltaEstimated != null ? Number(totalSciDeltaEstimated) : null;
     let sciPick = B;
-    if (preferOptimized && D != null && Number.isFinite(D)) {
-      sciPick = B + D;
-    }
     if (sciPick < 0) sciPick = 0;
     const gScaled = sciPick * effectiveMultiplier;
     return pickEquivalents(gScaled);
-  }, [sciBefore, totalSciDeltaEstimated, preferOptimized, effectiveMultiplier]);
+  }, [sciBefore, effectiveMultiplier]);
 
   if (!rows.length) return null;
 
@@ -31,7 +25,7 @@ export default function RealLifeEquivalentsCard({
         Real-life equivalents
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10 }}>
-        At {effectiveMultiplier.toLocaleString()}× execution intensity (estimated SCI baseline above).
+        At {effectiveMultiplier.toLocaleString()}× execution intensity (measured SCI baseline).
       </div>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {rows.map((r, i) => (
