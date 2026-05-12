@@ -1,6 +1,6 @@
 # QueryCarbon - SQL Query Carbon Footprint Analyzer
 
-**Production-Ready Version 1.0.0** | Last Updated: February 28, 2026
+**Version 1.0.0 — Phase 3** | Last Updated: May 12, 2026
 
 ---
 
@@ -37,6 +37,9 @@
 ✅ **Configurable**: Per-region grid intensity, custom hardware parameters  
 ✅ **Production Ready**: Error handling, logging, database persistence  
 ✅ **Enterprise Scale**: History tracking, CSV export, dashboard analytics  
+✅ **Phase 3 Optimization Engine**: EXPLAIN plan analysis, hypopg index simulation, pg_hint_plan hint simulation, 12-rule SQL pattern matching  
+✅ **SCI Prediction**: Before vs. after SCI display with percentage reduction, heuristic estimates for SQL-pattern findings  
+✅ **Scaled Emissions**: 1K / 100K / 1M hit projections with real-life equivalents  
 
 ### Tech Stack
 
@@ -432,7 +435,25 @@ return 'CRITICAL';
 6. Returns response with all metrics + configuration snapshot
                 │
                 ▼
-7. Frontend renders results with gauge, tables, metrics
+7. Frontend auto-triggers POST /api/optimize-query
+                │
+                ├─► Track 1: analyzeExplainJson() — 10 EXPLAIN patterns (P1–P10)
+                ├─► Track 2: simulateHypopg() — hypothetical index simulation
+                │           (requires hypopg PostgreSQL extension)
+                ├─► Track 2b: simulateHints() — pg_hint_plan hint simulation
+                │           (requires pg_hint_plan PostgreSQL extension)
+                ├─► Track 3: analyzeSqlPatterns() — 12 SQL anti-pattern rules (R1–R12)
+                ├─► applyHeuristicDeltas() — estimates ΔSCI for SQL-pattern findings
+                ├─► mergeAndRank() — prioritised findings list
+                │
+                ▼
+8. Frontend renders:
+                ├─► EXPLAIN plan tree (collapsible, colour-coded by severity)
+                ├─► SCI Before vs. After prediction cards + % reduction
+                ├─► Scaled emissions (1K / 100K / 1M hits)
+                ├─► Real-life equivalents
+                ├─► FindingCards with simulation metadata (Δcost, ΔSCI)
+                └─► Extension status (hypopg / pg_hint_plan active/inactive)
 ```
 
 ---
@@ -824,7 +845,66 @@ Currently open (add JWT in Phase 2). For now, use IP whitelisting or VPN in prod
 
 ---
 
-### 7. Export History
+### 7. Optimize Query (Phase 3)
+**POST** `/api/optimize-query`
+
+Runs the full Phase 3 pipeline: EXPLAIN analysis, optional hypopg index simulation, optional pg_hint_plan hint simulation, and SQL pattern matching.
+
+**Request:**
+```json
+{ "query_id": 42 }
+```
+or
+```json
+{ "sql": "SELECT ...", "database": "mydb" }
+```
+
+**Response (200):**
+```json
+{
+  "query_id": 42,
+  "hypopg_available": true,
+  "pg_hint_plan_available": true,
+  "explain_plan": [ { "Plan": { "Node Type": "Seq Scan", ... } } ],
+  "findings": [
+    {
+      "pattern_id": "SEQ_SCAN_FILTER",
+      "severity": "medium",
+      "title": "SEQ_SCAN_FILTER — rental",
+      "description": "Seq Scan on rental: examined 16,000 rows ...",
+      "track": "explain_analysis",
+      "simulation": "simulated",
+      "cost_before": 350.6,
+      "cost_after": 12.1,
+      "cost_delta": -338.5,
+      "sci_delta": -0.0036,
+      "index_ddl": "CREATE INDEX ON rental(customer_id)",
+      "hint_simulation": "confirmed",
+      "hint_cost_delta": -310.2,
+      "hint_sci_delta": -0.0031,
+      "hinted_query": "/*+ IndexScan(rental) */\nSELECT ..."
+    },
+    {
+      "pattern_id": "CORRELATED_SUBQUERY_IN_SELECT",
+      "severity": "high",
+      "track": "sql_pattern",
+      "sci_delta": -0.0019,
+      "estimated_saving_factor": 0.50
+    }
+  ],
+  "total_sci_delta_estimated": -0.0055
+}
+```
+
+**Notes:**
+- `total_sci_delta_estimated` is the sum of the best negative delta per finding (negative = savings). Used by the Before vs. After display.
+- `simulation: "simulated"` — hypopg ran and confirmed improvement; `"heuristic"` — extension unavailable, estimate only.
+- `hint_simulation: "confirmed"` — pg_hint_plan ran and confirmed improvement; `"no_improvement"` — hint did not help.
+- `sci_delta` on `sql_pattern` findings is a heuristic estimate based on `estimated_saving_factor × SCI_before`.
+
+---
+
+### 8. Export History
 **GET** `/api/history/export?days=30`
 
 **Returns:** CSV file
@@ -1013,6 +1093,77 @@ ON large_users_table(created_year);
 ```
 
 After index, same query: **Score: 89 (GOOD)** ✅
+
+---
+
+---
+
+## 🔍 Phase 3 — Optimization Engine
+
+### How It Works
+
+After every query analysis, the frontend automatically calls `POST /api/optimize-query`. The backend runs four tracks in sequence:
+
+| Track | Service | What it does |
+|-------|---------|-------------|
+| **1** | `explainAnalyzer.js` | Walks the EXPLAIN JSON tree and flags 10 patterns (P1–P10): sequential scans, bad cardinality estimates, nested loops on large sets, hash joins on tiny tables, descending sorts without index, CTE materialisation fences, etc. |
+| **2** | `indexSimulator.js` | For findings with `forward_to_track2: true`, creates a **hypothetical index** via `hypopg_create_index()`, re-runs `EXPLAIN`, measures Δcost and ΔSCI, then drops the index. Requires **hypopg** extension. |
+| **2b** | `hintSimulator.js` | For findings with `forward_to_track2b: true`, prepends a `/*+ hint */` block and re-runs `EXPLAIN` to compare cost. Requires **pg_hint_plan** extension. |
+| **3** | `sqlPatternMatcher.js` | Regex-based matching of 12 SQL anti-patterns (R1–R12) against the raw query text. Works without a database connection. |
+
+Heuristic ΔSCI estimates are applied to SQL-pattern findings (Track 3) using `estimated_saving_factor × SCI_before` so they contribute to the Before vs. After prediction even without a simulation.
+
+### Installing Optional PostgreSQL Extensions
+
+For full simulation capability, install both extensions on your target database:
+
+```sql
+-- Hypothetical index simulation
+CREATE EXTENSION IF NOT EXISTS hypopg;
+
+-- Query hint simulation
+CREATE EXTENSION IF NOT EXISTS pg_hint_plan;
+
+-- Verify
+SELECT extname FROM pg_extension WHERE extname IN ('hypopg', 'pg_hint_plan');
+```
+
+> **hypopg** is available via most Linux package managers (`apt install postgresql-XX-hypopg`).  
+> **pg_hint_plan** packages are at https://github.com/ossc-db/pg_hint_plan — install the version matching your PostgreSQL major version.
+
+Without these extensions the optimizer still runs; Track 1 and Track 3 findings are always available, and ΔSCI estimates fall back to heuristic values.
+
+### EXPLAIN Patterns Detected (Track 1)
+
+| ID | Pattern | Triggers | Tracks |
+|----|---------|----------|--------|
+| P1 | `SEQ_SCAN_FILTER` | Sequential scan with a filter | hypopg + hint |
+| P2 | `FUNC_ON_FILTER` | Function/cast on a filter column | hypopg + hint |
+| P3 | `SORT_NO_INDEX` | Sort on > 5 000 rows without index | hypopg + hint |
+| P4 | `NESTED_LOOP_LARGE` | Nested loop with > 1 000 outer rows | hint |
+| P5 | `BAD_CARDINALITY` | Estimate off by > 10× | — |
+| P6 | `CTE_FENCE` | CTE materialisation | hint |
+| P7 | `INDEX_POOR_SELECTIVITY` | Index scan removing > 5× rows kept | hypopg |
+| P8 | `HASH_JOIN_TINY` | Hash join on < 100 × < 100 rows | hint |
+| P9 | `BITMAP_SCAN_LARGE` | Bitmap heap scan on > 50 000 rows | hypopg |
+| P10 | `DESC_SORT_NO_INDEX` | Descending sort without Index Scan Backward | hypopg + hint |
+
+### SQL Anti-Patterns Detected (Track 3)
+
+| ID | Pattern | Severity | Est. saving |
+|----|---------|----------|-------------|
+| R1 | `NOT_IN_SUBQUERY` | High | 35% |
+| R2 | `CORRELATED_NOT_EXISTS` | Medium | 20% |
+| R3 | `SELECT_STAR_SUBQUERY` | Medium | 8% |
+| R4 | `REPEATED_OR_EQUALITY` | Low | 3% |
+| R5 | `DISTINCT_WITH_JOIN` | Medium | 18% |
+| R6 | `LARGE_OFFSET` | High/Medium | 45%/25% |
+| R7 | `IMPLICIT_TYPE_COERCION` | Medium | 12% |
+| R8 | `LEADING_WILDCARD_LIKE` | High | 40% |
+| R9 | `HAVING_NO_GROUP_BY` | Medium | 5% |
+| R10 | `CORRELATED_SUBQUERY_IN_SELECT` | High | 50% |
+| R11 | `COUNT_COLUMN_NOT_STAR` | Low | 4% |
+| R12 | `UNION_NOT_ALL` | Medium | 10% |
 
 ---
 
@@ -1236,9 +1387,9 @@ This project is licensed under the **MIT License** (pending legal review).
 
 ---
 
-**QueryCarbon v1.0.0** | Production Ready | February 28, 2026
+**QueryCarbon v1.0.0 — Phase 3** | May 12, 2026
 
-*Measuring query carbon footprint with scientific rigor and production reliability.*
+*Measuring query carbon footprint with scientific rigor — and predicting the impact of every optimization.*
 
 ### Phase 1 Complete: Carbon Emission Estimation & Sustainability Scoring
 
@@ -1455,8 +1606,8 @@ All parameters are configurable per-analysis and stored in history for reproduci
 | Phase | Status | Features |
 |-------|--------|----------|
 | **Phase 1** | ✅ Complete | Carbon estimation, sustainability scoring, tier classification |
-| **Phase 2** | 🔄 Planned | Query optimization suggestions |
-| **Phase 3** | 🔄 Planned | Advanced evaluation & grading metrics |
+| **Phase 2** | ✅ Complete | History tracking, dashboard analytics, CSV export, Reports page |
+| **Phase 3** | ✅ Complete | EXPLAIN plan analysis, hypopg index simulation, pg_hint_plan hint simulation, 12-rule SQL pattern matching, SCI before/after prediction, scaled emissions, real-life equivalents |
 | **Phase 4** | 🔄 Planned | Multi-database support (MySQL, Oracle, etc.) |
 
 ---
@@ -1500,4 +1651,4 @@ CORS_ORIGIN=http://localhost:5173
 
 ---
 
-**Status**: Phase 1 Complete - Production Ready
+**Status**: Phase 3 Complete — Optimization Engine with hypopg, pg_hint_plan, SCI prediction, and scaled emissions
