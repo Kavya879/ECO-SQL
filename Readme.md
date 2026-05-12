@@ -44,8 +44,7 @@
 |-----------|------------|
 | **Backend** | Node.js 18+ / Express.js 4.x |
 | **Frontend** | React 18+ / Vite 4.x |
-| **Database** | PostgreSQL 14+ (metadata DB + workload databases on same cluster) |
-| **Extensions (optional)** | **hypopg** — hypothetical index simulation · **pg_hint_plan** — planner hint simulation |
+| **Database** | PostgreSQL 12+ |
 | **Language** | JavaScript (ES2020+) |
 | **Port** | Backend: 3001, Frontend: 5173 |
 
@@ -709,52 +708,7 @@ Currently open (add JWT in Phase 2). For now, use IP whitelisting or VPN in prod
 
 ---
 
-### 2. Optimize Query (Phase 3)
-**POST** `/api/optimize-query`
-
-Runs read-only `EXPLAIN (FORMAT JSON)` on the **target workload database** (from history or `database`), plus optional **hypopg** / **pg_hint_plan** simulations when those extensions are installed. Body:
-
-```json
-{ "query_id": 42 }
-```
-
-Optional: `{ "sql": "SELECT ...", "database": "production" }` when not loading from history.
-
-**Response (200)** — abbreviated:
-
-```json
-{
-  "query_id": 42,
-  "hypopg_available": true,
-  "pg_hint_plan_available": false,
-  "total_sci_delta_estimated": -0.043,
-  "findings": [
-    {
-      "pattern_id": "SEQ_SCAN_FILTER",
-      "track": "explain_analysis",
-      "severity": "high",
-      "table": "orders",
-      "column": "status",
-      "suggestion": "Add a B-tree index on orders(status)",
-      "rationale": "Seq Scan on orders: examined 84,000 rows …",
-      "index_ddl": "CREATE INDEX ON orders(status)",
-      "simulation": "simulated",
-      "cost_delta": -8108.4,
-      "sci_delta": -0.043,
-      "hint_simulation": "confirmed",
-      "hinted_query": "/*+ IndexScan(orders) */\nSELECT ...",
-      "hint_cost_delta": -7530.3,
-      "hint_sci_delta": -0.038
-    }
-  ]
-}
-```
-
-If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns SQL-pattern findings only and `hypopg_available` / `pg_hint_plan` will be `false`.
-
----
-
-### 3. Get Databases
+### 2. Get Databases
 **GET** `/api/databases`
 
 **Response:**
@@ -770,7 +724,7 @@ If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns
 
 ---
 
-### 4. Get Tables
+### 3. Get Tables
 **GET** `/api/databases/{dbName}/tables`
 
 **Response:**
@@ -786,7 +740,7 @@ If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns
 
 ---
 
-### 5. Get Hardware Config
+### 4. Get Hardware Config
 **GET** `/api/hardware-config`
 
 **Response:**
@@ -809,7 +763,7 @@ If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns
 
 ---
 
-### 6. Get History
+### 5. Get History
 **GET** `/api/history?limit=50&offset=0&search=SELECT&classification=MODERATE&days=30`
 
 **Response:**
@@ -837,7 +791,7 @@ If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns
 
 ---
 
-### 7. Get Dashboard Stats
+### 6. Get Dashboard Stats
 **GET** `/api/dashboard?days=30`
 
 **Response:**
@@ -845,7 +799,7 @@ If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns
 {
   "stats": {
     "total_queries": 1523,
-    "total_co2_g": 4230,
+    "total_co2_kg": 4.23,
     "high_impact": 145,
     "sustainable": 892,
     "avg_gco2_per_query": 0.00277
@@ -870,7 +824,7 @@ If no `database_name` is available (e.g. ad-hoc SQL without DB), the API returns
 
 ---
 
-### 8. Export History
+### 7. Export History
 **GET** `/api/history/export?days=30`
 
 **Returns:** CSV file
@@ -1500,10 +1454,10 @@ All parameters are configurable per-analysis and stored in history for reproduci
 
 | Phase | Status | Features |
 |-------|--------|----------|
-| **Phase 1** | ✅ Complete | Query ingestion, carbon estimation, sustainability scoring, tier classification |
-| **Phase 2** | ✅ Complete | Evaluation & grading (dashboards, reports, history, export) |
-| **Phase 3** | ✅ Complete | Query betterment — EXPLAIN patterns, hypopg index simulation, pg_hint_plan hints, SQL rewrite rules (`POST /api/optimize-query`) |
-| **Phase 4** | 🔄 Planned | Multi-database support (MySQL, SQLite, etc.) |
+| **Phase 1** | ✅ Complete | Carbon estimation, sustainability scoring, tier classification |
+| **Phase 2** | 🔄 Planned | Query optimization suggestions |
+| **Phase 3** | 🔄 Planned | Advanced evaluation & grading metrics |
+| **Phase 4** | 🔄 Planned | Multi-database support (MySQL, Oracle, etc.) |
 
 ---
 
@@ -1544,12 +1498,6 @@ PORT=3001
 CORS_ORIGIN=http://localhost:5173
 ```
 
-**PostgreSQL extensions (optional, on each workload DB you optimize against):**
-```sql
-CREATE EXTENSION IF NOT EXISTS hypopg;
-CREATE EXTENSION IF NOT EXISTS pg_hint_plan;
-```
-
 ---
 
-**Status**: Phase 3 query betterment implemented — core carbon analysis (Phase 1–2) plus optimization endpoint & UI.
+**Status**: Phase 1 Complete - Production Ready

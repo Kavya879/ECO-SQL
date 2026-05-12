@@ -240,6 +240,42 @@ export default function FindingCard({ finding }) {
         </div>
       )}
 
+      {/* Simulation / delta metadata row */}
+      {(finding.simulation || finding.hint_simulation ||
+        finding.sci_delta != null || finding.hint_sci_delta != null) && (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10,
+          paddingTop: 10, borderTop: '1px solid var(--border-muted)',
+        }}>
+          {finding.simulation && (
+            <span className="finding-meta-pill">index sim: {finding.simulation}</span>
+          )}
+          {finding.hint_simulation && (
+            <span className="finding-meta-pill">hint sim: {finding.hint_simulation}</span>
+          )}
+          {(finding.cost_delta != null || finding.hint_cost_delta != null) && (
+            <span className="finding-meta-pill">
+              Δcost {finding.cost_delta != null
+                ? Number(finding.cost_delta).toFixed(4)
+                : Number(finding.hint_cost_delta).toFixed(4)}
+            </span>
+          )}
+          {(finding.sci_delta != null || finding.hint_sci_delta != null) && (() => {
+            const isHeuristic = finding.track === 'sql_pattern' && finding.sci_delta != null;
+            const val = finding.sci_delta != null ? finding.sci_delta : finding.hint_sci_delta;
+            const label = isHeuristic ? 'ΔSCI ~est.' : 'ΔSCI';
+            const title = isHeuristic
+              ? 'Heuristic estimate — based on typical savings for this pattern. Rewrite to measure the real delta.'
+              : undefined;
+            return (
+              <span className="finding-meta-pill" title={title}>
+                {label} {Number(val).toFixed(4)} gCO₂eq
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
       <div className="finding-footer">
         {!ddlText && (
           <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>

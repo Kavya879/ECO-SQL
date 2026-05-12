@@ -22,6 +22,25 @@ function enrichFinding(f) {
   };
 }
 
+/**
+ * For sql_pattern findings that carry an estimated_saving_factor but have no
+ * real simulation delta (hypopg / pg_hint_plan), compute a heuristic sci_delta
+ * so they contribute to the Before vs After chart and the total estimate.
+ * Mutates findings in place; safe to call multiple times (guard: sci_delta == null).
+ */
+function applyHeuristicDeltas(findings, sciBase) {
+  if (!sciBase || sciBase <= 0) return;
+  for (const f of findings) {
+    if (
+      f.track === 'sql_pattern' &&
+      f.estimated_saving_factor != null &&
+      f.sci_delta == null
+    ) {
+      f.sci_delta = -(f.estimated_saving_factor * sciBase);
+    }
+  }
+}
+
 function computeTotalSciDeltaEstimated(findings) {
   let sum = 0;
   let any = false;
@@ -268,6 +287,10 @@ async function optimizeQuery(req, res) {
     if (!databaseName) {
       const ranked = mergeAndRank([], sqlPatternFindings);
       const enriched = ranked.map(enrichFinding);
+      // Apply heuristic deltas when a historic SCI is available (query_id path)
+      if (historicSci != null && historicSci > 0) {
+        applyHeuristicDeltas(enriched, historicSci);
+      }
       return res.json({
         query_id: resolvedQueryId,
         hypopg_available: false,
@@ -327,6 +350,7 @@ async function optimizeQuery(req, res) {
 
       const ranked = mergeAndRank(explainFindings, sqlPatternFindings);
       const enriched = ranked.map(enrichFinding);
+      applyHeuristicDeltas(enriched, sciBase);
 
       return res.json({
         query_id: resolvedQueryId,

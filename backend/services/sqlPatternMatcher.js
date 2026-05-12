@@ -95,6 +95,7 @@ function detectR4(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.03,
     };
   }
   return null;
@@ -117,6 +118,7 @@ function detectR5(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.18,
     };
   }
   return null;
@@ -142,6 +144,7 @@ function detectR6(sql) {
         hint: null,
         index_ddl: null,
         track: 'sql_pattern',
+        estimated_saving_factor: offsetVal > 10000 ? 0.45 : 0.25,
       };
     }
   }
@@ -166,6 +169,7 @@ function detectR7(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.12,
     };
   }
   return null;
@@ -188,6 +192,7 @@ function detectR8(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.40,
     };
   }
   return null;
@@ -210,6 +215,7 @@ function detectR9(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.05,
     };
   }
   return null;
@@ -256,6 +262,7 @@ function detectR10(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.50,
     };
   }
   return null;
@@ -279,6 +286,7 @@ function detectR11(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.04,
     };
   }
   return null;
@@ -302,6 +310,7 @@ function detectR12(sql) {
       hint: null,
       index_ddl: null,
       track: 'sql_pattern',
+      estimated_saving_factor: 0.10,
     };
   }
   return null;
