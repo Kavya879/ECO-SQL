@@ -1581,6 +1581,55 @@ input[type=range]::-webkit-slider-thumb {
   background: var(--green);
   opacity: 0.06;
 }
+/* Score badge light mode styling */
+[data-theme="light"] .score-badge-excellent,
+[data-theme="light"] .score-badge-sustainable {
+  background: rgba(0, 135, 90, 0.15) !important;
+  color: #00875a !important;
+}
+[data-theme="light"] .score-badge-good {
+  background: rgba(3, 105, 161, 0.12) !important;
+  color: #0369a1 !important;
+}
+[data-theme="light"] .score-badge-moderate {
+  background: rgba(146, 64, 14, 0.15) !important;
+  color: #92400e !important;
+}
+[data-theme="light"] .score-badge-poor {
+  background: rgba(185, 28, 28, 0.15) !important;
+  color: #b91c1c !important;
+}
+[data-theme="light"] .score-badge-critical,
+[data-theme="light"] .score-badge-high-impact {
+  background: rgba(185, 28, 28, 0.2) !important;
+  color: #7f1d1d !important;
+}
+/* Tier pill light mode styling */
+[data-theme="light"] .tier-excellent {
+  background: rgba(0, 135, 90, 0.15) !important;
+  color: #00875a !important;
+  border-color: rgba(0, 135, 90, 0.3) !important;
+}
+[data-theme="light"] .tier-good {
+  background: rgba(3, 105, 161, 0.12) !important;
+  color: #0369a1 !important;
+  border-color: rgba(3, 105, 161, 0.2) !important;
+}
+[data-theme="light"] .tier-moderate {
+  background: rgba(146, 64, 14, 0.15) !important;
+  color: #92400e !important;
+  border-color: rgba(146, 64, 14, 0.2) !important;
+}
+[data-theme="light"] .tier-poor {
+  background: rgba(185, 28, 28, 0.15) !important;
+  color: #b91c1c !important;
+  border-color: rgba(185, 28, 28, 0.3) !important;
+}
+[data-theme="light"] .tier-critical {
+  background: rgba(185, 28, 28, 0.2) !important;
+  color: #7f1d1d !important;
+  border-color: rgba(185, 28, 28, 0.4) !important;
+}
 [data-theme="light"] ::-webkit-scrollbar-track { background: var(--bg); }
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: var(--border); }
 [data-theme="light"] ::selection { background: var(--green); color: #ffffff; }

@@ -36,7 +36,7 @@ function ScoreBadge({ cls }) {
   };
   const cfg = map[c] || { letter: '?', color: 'var(--text-muted)', bg: 'var(--bg-surface)' };
   return (
-    <span style={{
+    <span className={`score-badge score-badge-${c.toLowerCase().replace(/\s+/g, '-')}`} style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       padding: '2px 8px', borderRadius: 4,
       background: cfg.bg, color: cfg.color,
