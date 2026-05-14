@@ -11,6 +11,7 @@ router.get('/history', ctrl.getHistory);
 router.delete('/history', ctrl.clearHistory);
 router.get('/history/export', ctrl.exportHistory);
 router.get('/history/:id', ctrl.getHistoryById);
+router.patch('/history/:id/optimized', ctrl.markAsOptimized);
 router.get('/dashboard', ctrl.getDashboard);
 
 module.exports = router;

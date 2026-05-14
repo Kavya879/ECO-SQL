@@ -160,6 +160,7 @@ async function analyzeQuery(req, res) {
       embodied_emissions_gco2: metrics.embodied_emissions_gco2eq,
       total_emissions_gco2: metrics.total_emissions_gco2eq,
       sci: metrics.sci_gco2eq_per_query,
+      sustainability_score: metrics.sustainability_score,
       classification: metrics.classification,
       tables_involved: tables,
       hardware_config: hardwareConfig,
@@ -425,4 +426,21 @@ async function clearHistory(req, res) {
   }
 }
 
-module.exports = { analyzeQuery, optimizeQuery, getDatabases, getTables, getHistory, getHistoryById, getDashboard, getHardwareConfig, exportHistory, clearHistory };
+/**
+ * PATCH /api/history/:id/optimized
+ * Body: { undo: true } to unmark
+ */
+async function markAsOptimized(req, res) {
+  try {
+    const id = parseInt(req.params.id);
+    const undo = req.body?.undo === true;
+    if (!id) return res.status(400).json({ error: 'Invalid id' });
+    const row = await db.markAsOptimized(id, undo);
+    if (!row) return res.status(404).json({ error: 'Record not found' });
+    res.json({ id: row.id, optimized_at: row.optimized_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { analyzeQuery, optimizeQuery, getDatabases, getTables, getHistory, getHistoryById, getDashboard, getHardwareConfig, exportHistory, clearHistory, markAsOptimized };
