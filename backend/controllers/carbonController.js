@@ -2,6 +2,59 @@ const db = require('../db/connection');
 const { calculateAll, extractTables } = require('../services/carbonCalculator');
 const hardwareDetector = require('../services/hardwareDetector');
 const { analyzeQuery: analyzeOptimization } = require('../services/queryOptimizer');
+const { analyzeExplainJson } = require('../services/explainAnalyzer');
+const { analyzeSqlPatterns } = require('../services/sqlPatternMatcher');
+const { mergeAndRank } = require('../services/optimizationRanker');
+const {
+  simulateHypopg,
+  extensionAvailable: pgExtensionAvailable,
+  extractTotalCostFromExplainRows,
+} = require('../services/indexSimulator');
+const { simulateHints } = require('../services/hintSimulator');
+
+function enrichFinding(f) {
+  const titleParts = [f.pattern_id];
+  if (f.table) titleParts.push(f.table);
+  return {
+    ...f,
+    title: titleParts.join(' — '),
+    description: [f.rationale, f.suggestion].filter(Boolean).join(' · ') || f.suggestion || '',
+  };
+}
+
+/**
+ * For sql_pattern findings that carry an estimated_saving_factor but have no
+ * real simulation delta (hypopg / pg_hint_plan), compute a heuristic sci_delta
+ * so they contribute to the Before vs After chart and the total estimate.
+ * Mutates findings in place; safe to call multiple times (guard: sci_delta == null).
+ */
+function applyHeuristicDeltas(findings, sciBase) {
+  if (!sciBase || sciBase <= 0) return;
+  for (const f of findings) {
+    if (
+      f.track === 'sql_pattern' &&
+      f.estimated_saving_factor != null &&
+      f.sci_delta == null
+    ) {
+      f.sci_delta = -(f.estimated_saving_factor * sciBase);
+    }
+  }
+}
+
+function computeTotalSciDeltaEstimated(findings) {
+  let sum = 0;
+  let any = false;
+  for (const f of findings) {
+    const candidates = [f.sci_delta, f.hint_sci_delta].filter(
+      (v) => v != null && typeof v === 'number' && v < 0
+    );
+    if (candidates.length) {
+      sum += Math.min(...candidates);
+      any = true;
+    }
+  }
+  return any ? Math.round(sum * 1e7) / 1e7 : null;
+}
 
 /**
  * POST /api/analyze
@@ -107,6 +160,7 @@ async function analyzeQuery(req, res) {
       embodied_emissions_gco2: metrics.embodied_emissions_gco2eq,
       total_emissions_gco2: metrics.total_emissions_gco2eq,
       sci: metrics.sci_gco2eq_per_query,
+      sustainability_score: metrics.sustainability_score,
       classification: metrics.classification,
       tables_involved: tables,
       hardware_config: hardwareConfig,
@@ -204,12 +258,16 @@ async function getHistoryById(req, res) {
 
 /**
  * POST /api/optimize-query
- * Body: { query_id } or { sql }
+ * Phase 3: EXPLAIN pattern analysis, hypopg index simulation, pg_hint_plan hints,
+ * rule-based SQL patterns. Body: { query_id } | { sql, database? }
  */
 async function optimizeQuery(req, res) {
   try {
-    const { query_id, sql } = req.body || {};
+    const { query_id, sql, database: databaseOverride } = req.body || {};
     let queryText = typeof sql === 'string' ? sql.trim() : '';
+    let databaseName = typeof databaseOverride === 'string' ? databaseOverride.trim() : '';
+    let resolvedQueryId = query_id || null;
+    let historicSci = null;
 
     if (!queryText && query_id) {
       const row = await db.getHistoryById(query_id);
@@ -217,69 +275,98 @@ async function optimizeQuery(req, res) {
         return res.status(404).json({ error: 'Query history record not found for optimization' });
       }
       queryText = String(row.query_text || '').trim();
+      databaseName = databaseName || String(row.database_name || '').trim();
+      historicSci = row.sci != null ? Number(row.sci) : null;
     }
 
     if (!queryText) {
       return res.status(400).json({ error: 'Missing required field: query_id or sql' });
     }
 
-    const analysis = analyzeOptimization(queryText, null);
-    const issues = Array.isArray(analysis?.issues) ? analysis.issues : [];
-    const indexRecommendations = Array.isArray(analysis?.indexRecommendations) ? analysis.indexRecommendations : [];
+    const sqlPatternFindings = analyzeSqlPatterns(queryText);
 
-    const severityByIssue = {
-      'Possible Cartesian join': 'high',
-      'Sequential scan in EXPLAIN plan': 'high',
-      'High-cost or high-row plan node': 'high',
-      'Potential missing indexes on filter/join columns': 'high',
-      'SELECT * detected': 'medium',
-      'Missing WHERE clause': 'medium',
-      'ORDER BY may be unindexed': 'medium',
-      'Function on column in predicate': 'medium',
-      'Leading wildcard LIKE detected': 'medium',
-      'Missing LIMIT clause': 'low',
-      'DISTINCT detected': 'low',
-      'Repeated subquery detected': 'medium',
-      'No major anti-pattern detected': 'low',
-    };
+    if (!databaseName) {
+      const ranked = mergeAndRank([], sqlPatternFindings);
+      const enriched = ranked.map(enrichFinding);
+      // Apply heuristic deltas when a historic SCI is available (query_id path)
+      if (historicSci != null && historicSci > 0) {
+        applyHeuristicDeltas(enriched, historicSci);
+      }
+      return res.json({
+        query_id: resolvedQueryId,
+        hypopg_available: false,
+        pg_hint_plan_available: false,
+        explain_plan: null,
+        findings: enriched,
+        total_sci_delta_estimated: computeTotalSciDeltaEstimated(enriched),
+        note:
+          'No target database available — only SQL pattern rules ran. Provide a saved query_id with database_name or pass database with sql.',
+      });
+    }
 
-    const scoreBySeverity = { high: 3, medium: 2, low: 1 };
+    const pool = db.getPoolForDatabase(databaseName);
+    const client = await pool.connect();
 
-    const issueFindings = issues.map((item, idx) => {
-      const issueName = item.issue || 'Optimization opportunity';
-      const severity = severityByIssue[issueName] || 'medium';
-      const reason = item.laymanReason || item.reason || 'This pattern can increase query cost.';
-      const action = item.whatToDo || item.suggestion || 'Review this query pattern and validate with EXPLAIN ANALYZE.';
+    try {
+      const hypopgAvailable = await pgExtensionAvailable(client, 'hypopg');
+      const pgHintPlanAvailable = await pgExtensionAvailable(client, 'pg_hint_plan');
 
-      return {
-        rule_id: `R${idx + 1}`,
-        severity,
-        title: issueName,
-        description: `${reason} Action: ${action}`,
-        suggestion: action,
-        before: item.example?.before,
-        after: item.example?.after,
-      };
-    });
+      const explainRes = await client.query(`EXPLAIN (FORMAT JSON) ${queryText}`);
+      const queryPlan = explainRes.rows[0]?.['QUERY PLAN'];
+      const costBefore = extractTotalCostFromExplainRows(explainRes.rows);
 
-    const indexFindings = indexRecommendations.map((ddl, idx) => ({
-      rule_id: `IDX${idx + 1}`,
-      severity: 'high',
-      title: 'Create index for observed filter/join pattern',
-      description: 'The analyzer detected a column pattern that is likely to benefit from an index. Apply the DDL below, then re-run EXPLAIN ANALYZE to confirm lower cost/rows.',
-      suggestion: 'Apply this index in a migration window and validate plan improvements.',
-      index_ddl: ddl,
-      track: 'explain_analysis',
-    }));
+      let explainFindings = analyzeExplainJson(queryPlan);
 
-    const findings = [...issueFindings, ...indexFindings]
-      .sort((a, b) => (scoreBySeverity[b.severity] || 0) - (scoreBySeverity[a.severity] || 0));
+      const sciBase =
+        historicSci != null && historicSci > 0 ? historicSci : 0.1;
 
-    return res.json({
-      findings,
-      summary: analysis?.summary || {},
-    });
+      if (!hypopgAvailable) {
+        explainFindings.forEach((f) => {
+          if (f.forward_to_track2) {
+            f.simulation = 'heuristic';
+            f.cost_before = costBefore;
+            f.cost_after = null;
+            f.cost_delta = null;
+            f.sci_delta = null;
+          }
+        });
+      } else {
+        await simulateHypopg(explainFindings, queryText, client, costBefore, sciBase);
+      }
+
+      if (!pgHintPlanAvailable) {
+        explainFindings.forEach((f) => {
+          if (f.forward_to_track2b && f.hint) {
+            f.hint_simulation = 'heuristic';
+            f.hinted_query = null;
+            f.hint_cost_before = costBefore;
+            f.hint_cost_after = null;
+            f.hint_cost_delta = null;
+            f.hint_sci_delta = null;
+          }
+        });
+      } else {
+        await simulateHints(explainFindings, queryText, client, costBefore, sciBase);
+      }
+
+      const ranked = mergeAndRank(explainFindings, sqlPatternFindings);
+      const enriched = ranked.map(enrichFinding);
+      applyHeuristicDeltas(enriched, sciBase);
+
+      return res.json({
+        query_id: resolvedQueryId,
+        hypopg_available: hypopgAvailable,
+        pg_hint_plan_available: pgHintPlanAvailable,
+        explain_plan: queryPlan ?? null,
+        findings: enriched,
+        total_sci_delta_estimated: computeTotalSciDeltaEstimated(enriched),
+      });
+    } finally {
+      client.release();
+      await pool.end();
+    }
   } catch (err) {
+    console.error('optimizeQuery error:', err);
     return res.status(500).json({ error: err.message });
   }
 }
@@ -339,4 +426,21 @@ async function clearHistory(req, res) {
   }
 }
 
-module.exports = { analyzeQuery, optimizeQuery, getDatabases, getTables, getHistory, getHistoryById, getDashboard, getHardwareConfig, exportHistory, clearHistory };
+/**
+ * PATCH /api/history/:id/optimized
+ * Body: { undo: true } to unmark
+ */
+async function markAsOptimized(req, res) {
+  try {
+    const id = parseInt(req.params.id);
+    const undo = req.body?.undo === true;
+    if (!id) return res.status(400).json({ error: 'Invalid id' });
+    const row = await db.markAsOptimized(id, undo);
+    if (!row) return res.status(404).json({ error: 'Record not found' });
+    res.json({ id: row.id, optimized_at: row.optimized_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { analyzeQuery, optimizeQuery, getDatabases, getTables, getHistory, getHistoryById, getDashboard, getHardwareConfig, exportHistory, clearHistory, markAsOptimized };

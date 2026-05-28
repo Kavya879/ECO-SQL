@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import { getDashboard } from '../api/api.js';
 import { fmtGco2, fmtRuntime, fmtTimeAgo } from '../utils/format.js';
+import QueryVolumeSciScatter from '../components/QueryVolumeSciScatter.jsx';
 
 const DAYS_OPTIONS = [7, 30, 90];
 
@@ -66,11 +67,11 @@ function TierDonut({ dist, total }) {
   const safe = (v) => Math.max(0, parseFloat(v) || 0);
 
   const vals = [
-    safe(dist?.sustainable_pct || dist?.excellent_pct || 45),
-    safe(dist?.good_pct || 25),
-    safe(dist?.moderate_pct || 15),
-    safe(dist?.poor_pct || 10),
-    safe(dist?.high_impact_pct || dist?.critical_pct || 5),
+    safe(dist?.sustainable_pct ?? dist?.excellent_pct),
+    safe(dist?.good_pct),
+    safe(dist?.moderate_pct),
+    safe(dist?.poor_pct),
+    safe(dist?.high_impact_pct ?? dist?.critical_pct),
   ];
 
   let acc = 0;
@@ -121,16 +122,14 @@ export default function Dashboard() {
   const trend  = data?.trend  || [];
   const recent = data?.recent || [];
   const dist   = data?.distribution;
+  const scatter = data?.scatter || [];
   const total  = parseInt(stats?.total_queries || 0);
 
-  const avgScore = Math.max(0, Math.min(100, Math.round(
-    100 - (parseFloat(stats?.avg_gco2_per_query || 0) / 10) * 100
-  )));
+  const avgScore = parseInt(stats?.avg_sustainability_score || 0);
 
   const trendData = trend.map(r => ({
     day: new Date(r.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     avg_gco2: parseFloat(r.avg_gco2) || 0,
-    baseline: 0.5,
   }));
 
   return (
@@ -184,14 +183,17 @@ export default function Dashboard() {
 
         <div className="kpi-card">
           <div className="kpi-card-top">
-            <span className="kpi-label">CO₂ Emitted</span>
-            <span className="material-symbols-outlined kpi-icon">co2</span>
+            <span className="kpi-label">High Impact Queries</span>
+            <span className="material-symbols-outlined kpi-icon">warning</span>
           </div>
-          <div className="kpi-value">
-            {loading ? '—' : `${fmtGco2(stats?.total_co2_g || 0)} g`}
+          <div className={`kpi-value ${parseInt(stats?.high_impact || 0) > 0 ? 'red' : 'green'}`}>
+            {loading ? '—' : parseInt(stats?.high_impact || 0).toLocaleString()}
           </div>
-          <div className="kpi-trend neutral">
-            Last {days} days
+          <div className={`kpi-trend ${parseInt(stats?.high_impact || 0) > 0 ? 'down' : 'up'}`}>
+            {parseInt(stats?.high_impact || 0) > 0
+              ? <><span className="material-symbols-outlined sz-16">flag</span> Needs attention</>
+              : <><span className="material-symbols-outlined sz-16">check_circle</span> All clear</>
+            }
           </div>
         </div>
       </div>
@@ -224,10 +226,6 @@ export default function Dashboard() {
                       <stop offset="5%"  stopColor="#00FF88" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#00FF88" stopOpacity={0} />
                     </linearGradient>
-                    <linearGradient id="baseGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#00daf8" stopOpacity={0.15} />
-                      <stop offset="95%" stopColor="#00daf8" stopOpacity={0} />
-                    </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(59,75,61,0.4)" />
                   <XAxis
@@ -238,6 +236,7 @@ export default function Dashboard() {
                   <YAxis
                     tick={{ fill: '#849585', fontSize: 10, fontFamily: 'var(--font-mono)' }}
                     axisLine={false} tickLine={false}
+                    tickFormatter={v => v === 0 ? '0' : v < 0.001 ? v.toExponential(1) : v.toFixed(4)}
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Area
@@ -245,31 +244,13 @@ export default function Dashboard() {
                     stroke="#00FF88" strokeWidth={2}
                     fill="url(#opGrad)" dot={false} name="avg_gco2"
                   />
-                  <Area
-                    type="monotone" dataKey="baseline"
-                    stroke="#00daf8" strokeWidth={1.5}
-                    fill="url(#baseGrad)" dot={false}
-                    strokeDasharray="4 4" name="baseline"
-                  />
                 </AreaChart>
               </ResponsiveContainer>
               <div style={{ display: 'flex', gap: 20, marginTop: 8 }}>
-                {[
-                  { color: '#00FF88', label: 'Operational Emissions' },
-                  { color: '#00daf8', label: 'Baseline Reference', dashed: true },
-                ].map(l => (
-                  <div key={l.label} style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    fontSize: 11, color: 'var(--text-muted)',
-                  }}>
-                    <div style={{
-                      width: 20, height: 2,
-                      background: l.color,
-                      borderTop: l.dashed ? `2px dashed ${l.color}` : undefined,
-                    }} />
-                    {l.label}
-                  </div>
-                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                  <div style={{ width: 20, height: 2, background: '#00FF88' }} />
+                  Operational Emissions (gCO₂/day)
+                </div>
               </div>
             </>
           )}
@@ -286,6 +267,22 @@ export default function Dashboard() {
             <TierDonut dist={dist} total={total} />
           )}
         </div>
+      </div>
+
+      <div className="chart-card" style={{ marginBottom: 20 }}>
+        <div className="chart-card-title">
+          Query volume vs SCI
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>
+            Fingerprint grouping · Last {days} days
+          </span>
+        </div>
+        {loading ? (
+          <div className="empty-state" style={{ flex: 1, minHeight: 200 }}>
+            <span className="spinner" style={{ margin: '0 auto' }} />
+          </div>
+        ) : (
+          <QueryVolumeSciScatter points={scatter} />
+        )}
       </div>
 
       {/* Recent Heavy Queries */}

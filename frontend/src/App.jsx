@@ -1,10 +1,28 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard.jsx';
 import AnalyzePage from './pages/AnalyzePage.jsx';
 import ReportsPage from './pages/ReportsPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import QueryDetail from './pages/QueryDetail.jsx';
+
+function useTheme() {
+  const [theme, setTheme] = useState(
+    () => localStorage.getItem('qc-theme') || 'dark'
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('qc-theme', theme);
+  }, [theme]);
+
+  const toggle = useCallback(
+    () => setTheme(t => (t === 'dark' ? 'light' : 'dark')),
+    []
+  );
+
+  return { theme, toggle };
+}
 
 const NAV_MAIN = [
   { to: '/',        icon: 'dashboard',    label: 'Dashboard', end: true },
@@ -26,8 +44,8 @@ function Sidebar() {
         <div className="sidebar-logo">
           <span className="material-symbols-outlined sidebar-logo-icon fill sz-24">database</span>
           <div>
-            <div className="sidebar-brand">QueryCarbon</div>
-            <div className="sidebar-version">Phase 3 · v1.0.0</div>
+            <div className="sidebar-brand">ECO-SQL</div>
+            <div className="sidebar-version">v1.0.0</div>
           </div>
         </div>
 
@@ -70,7 +88,7 @@ function Sidebar() {
   );
 }
 
-function TopBar() {
+function TopBar({ theme, onToggleTheme }) {
   return (
     <header className="topbar">
       <div className="topbar-search">
@@ -82,6 +100,15 @@ function TopBar() {
         />
       </div>
       <div className="topbar-actions">
+        <button
+          className="topbar-btn"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={onToggleTheme}
+        >
+          <span className="material-symbols-outlined">
+            {theme === 'dark' ? 'light_mode' : 'dark_mode'}
+          </span>
+        </button>
         <button className="topbar-btn" title="Notifications">
           <span className="material-symbols-outlined">notifications</span>
         </button>
@@ -96,12 +123,12 @@ function TopBar() {
   );
 }
 
-function Layout() {
+function Layout({ theme, onToggleTheme }) {
   return (
     <div className="app-shell">
       <Sidebar />
       <div className="app-main">
-        <TopBar />
+        <TopBar theme={theme} onToggleTheme={onToggleTheme} />
         <main className="app-content">
           <Routes>
             <Route path="/"         element={<Dashboard />} />
@@ -117,9 +144,10 @@ function Layout() {
 }
 
 export default function App() {
+  const { theme, toggle } = useTheme();
   return (
     <BrowserRouter>
-      <Layout />
+      <Layout theme={theme} onToggleTheme={toggle} />
     </BrowserRouter>
   );
 }

@@ -108,11 +108,20 @@ async function ensureHistoryTable() {
         embodied_emissions_gco2 DOUBLE PRECISION,
         total_emissions_gco2 DOUBLE PRECISION,
         sci DOUBLE PRECISION,
+        sustainability_score DOUBLE PRECISION,
         classification VARCHAR(50),
         tables_involved TEXT[],
         hardware_config JSONB,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
+    `);
+    await client.query(`
+      ALTER TABLE querycarbon_history
+      ADD COLUMN IF NOT EXISTS sustainability_score DOUBLE PRECISION
+    `);
+    await client.query(`
+      ALTER TABLE querycarbon_history
+      ADD COLUMN IF NOT EXISTS optimized_at TIMESTAMPTZ
     `);
   } finally {
     client.release();
@@ -125,14 +134,15 @@ async function saveToHistory(data) {
     const result = await client.query(
       `INSERT INTO querycarbon_history 
         (query_text, database_name, runtime_s, energy_kwh, operational_emissions_gco2,
-         embodied_emissions_gco2, total_emissions_gco2, sci, classification, tables_involved, hardware_config)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         embodied_emissions_gco2, total_emissions_gco2, sci, sustainability_score,
+         classification, tables_involved, hardware_config)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id, created_at`,
       [
         data.query_text, data.database_name, data.runtime_s, data.energy_kwh,
         data.operational_emissions_gco2, data.embodied_emissions_gco2,
-        data.total_emissions_gco2, data.sci, data.classification,
-        data.tables_involved, JSON.stringify(data.hardware_config),
+        data.total_emissions_gco2, data.sci, data.sustainability_score,
+        data.classification, data.tables_involved, JSON.stringify(data.hardware_config),
       ]
     );
     return result.rows[0];
@@ -175,6 +185,22 @@ async function getHistoryById(id) {
   }
 }
 
+async function markAsOptimized(id, undo = false) {
+  const client = await defaultPool.connect();
+  try {
+    const result = await client.query(
+      `UPDATE querycarbon_history
+       SET optimized_at = $1
+       WHERE id = $2
+       RETURNING id, optimized_at`,
+      [undo ? null : new Date(), parseInt(id)]
+    );
+    return result.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
 async function getDashboardStats(days = 30) {
   const client = await defaultPool.connect();
   try {
@@ -183,9 +209,10 @@ async function getDashboardStats(days = 30) {
       SELECT
         COUNT(*) AS total_queries,
         COALESCE(SUM(total_emissions_gco2), 0) AS total_co2_g,
-        COUNT(*) FILTER (WHERE classification = 'HIGH IMPACT') AS high_impact,
-        COUNT(*) FILTER (WHERE classification = 'SUSTAINABLE') AS sustainable,
-        COALESCE(AVG(total_emissions_gco2), 0) AS avg_gco2_per_query
+        COUNT(*) FILTER (WHERE classification IN ('CRITICAL', 'POOR', 'HIGH IMPACT') AND optimized_at IS NULL) AS high_impact,
+        COUNT(*) FILTER (WHERE classification IN ('EXCELLENT', 'SUSTAINABLE')) AS sustainable,
+        COALESCE(AVG(total_emissions_gco2), 0) AS avg_gco2_per_query,
+        COALESCE(ROUND(AVG(sustainability_score)), 0) AS avg_sustainability_score
       FROM querycarbon_history
       WHERE created_at >= NOW() - INTERVAL '${d} days'
     `);
@@ -202,13 +229,43 @@ async function getDashboardStats(days = 30) {
     `);
     const pie = await client.query(`
       SELECT
-        COALESCE(COUNT(*) FILTER (WHERE classification='SUSTAINABLE') * 100.0 / NULLIF(COUNT(*),0), 0) AS sustainable_pct,
+        COALESCE(COUNT(*) FILTER (WHERE classification IN ('EXCELLENT', 'SUSTAINABLE')) * 100.0 / NULLIF(COUNT(*),0), 0) AS sustainable_pct,
+        COALESCE(COUNT(*) FILTER (WHERE classification='GOOD') * 100.0 / NULLIF(COUNT(*),0), 0) AS good_pct,
         COALESCE(COUNT(*) FILTER (WHERE classification='MODERATE') * 100.0 / NULLIF(COUNT(*),0), 0) AS moderate_pct,
-        COALESCE(COUNT(*) FILTER (WHERE classification='HIGH IMPACT') * 100.0 / NULLIF(COUNT(*),0), 0) AS high_impact_pct
+        COALESCE(COUNT(*) FILTER (WHERE classification='POOR') * 100.0 / NULLIF(COUNT(*),0), 0) AS poor_pct,
+        COALESCE(COUNT(*) FILTER (WHERE classification IN ('CRITICAL', 'HIGH IMPACT')) * 100.0 / NULLIF(COUNT(*),0), 0) AS high_impact_pct
       FROM querycarbon_history
       WHERE created_at >= NOW() - INTERVAL '${d} days'
     `);
-    return { stats: stats.rows[0], trend: trend.rows, recent: recent.rows, distribution: pie.rows[0] };
+    const scatterAgg = await client.query(`
+      SELECT
+        MIN(hashtext(trim(both FROM query_text)))::text AS query_fingerprint,
+        COUNT(*)::int AS run_frequency,
+        AVG(sci)::double precision AS avg_sci_gco2eq_per_query,
+        MAX(created_at) AS last_run_at,
+        MIN(query_text) AS snippet_source
+      FROM querycarbon_history
+      WHERE created_at >= NOW() - INTERVAL '${d} days'
+      GROUP BY hashtext(trim(both FROM query_text))
+    `);
+    const scatter = scatterAgg.rows
+      .map((row) => {
+        const avg = row.avg_sci_gco2eq_per_query;
+        if (avg == null || Number.isNaN(Number(avg))) return null;
+        const snippet = String(row.snippet_source || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 120);
+        return {
+          queryFingerprint: row.query_fingerprint,
+          runFrequency: Number(row.run_frequency) || 0,
+          avgSciGco2eqPerQuery: Number(avg),
+          snippet,
+          lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : null,
+        };
+      })
+      .filter(Boolean);
+    return { stats: stats.rows[0], trend: trend.rows, recent: recent.rows, distribution: pie.rows[0], scatter };
   } finally {
     client.release();
   }
@@ -230,4 +287,4 @@ async function clearHistory(days) {
   }
 }
 
-module.exports = { defaultPool, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getHistoryById, getDashboardStats, clearHistory };
+module.exports = { defaultPool, getPoolForDatabase, listDatabases, listTables, executeQueryOnDatabase, ensureHistoryTable, saveToHistory, getHistory, getHistoryById, markAsOptimized, getDashboardStats, clearHistory };

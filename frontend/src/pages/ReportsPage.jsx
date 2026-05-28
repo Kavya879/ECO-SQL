@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getHistory, clearHistory } from '../api/api.js';
+import { getHistory, clearHistory, markAsOptimized } from '../api/api.js';
 import { fmtGco2, fmtRuntime, fmtTimeAgo } from '../utils/format.js';
 
 const DAYS = [7, 30, 90, 365];
@@ -36,7 +36,7 @@ function ScoreBadge({ cls }) {
   };
   const cfg = map[c] || { letter: '?', color: 'var(--text-muted)', bg: 'var(--bg-surface)' };
   return (
-    <span style={{
+    <span className={`score-badge score-badge-${c.toLowerCase().replace(/\s+/g, '-')}`} style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       padding: '2px 8px', borderRadius: 4,
       background: cfg.bg, color: cfg.color,
@@ -55,7 +55,8 @@ export default function ReportsPage() {
   const [cls, setCls]           = useState('');
   const [days, setDays]         = useState(30);
   const [page, setPage]         = useState(0);
-  const [copiedId, setCopiedId] = useState(null);
+  const [copiedId, setCopiedId]       = useState(null);
+  const [optimizingId, setOptimizingId] = useState(null);
 
   const totalPages = Math.ceil(data.total / LIMIT);
 
@@ -87,6 +88,23 @@ export default function ReportsPage() {
     setTimeout(() => { setCopiedId(null); navigate('/analyze'); }, 400);
   };
 
+  const handleMarkOptimized = async (e, row) => {
+    e.stopPropagation();
+    const undo = !!row.optimized_at;
+    setOptimizingId(row.id);
+    try {
+      const updated = await markAsOptimized(row.id, undo);
+      setData(prev => ({
+        ...prev,
+        rows: prev.rows.map(r => r.id === row.id ? { ...r, optimized_at: updated.optimized_at } : r),
+      }));
+    } catch (err) {
+      alert('Failed to update: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setOptimizingId(null);
+    }
+  };
+
   /* Pagination pages to display */
   const pageNums = (() => {
     if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i);
@@ -101,7 +119,7 @@ export default function ReportsPage() {
       <div className="page-head">
         <div>
           <div className="page-title">Reports &amp; History</div>
-          <div className="page-desc">Analyze past query executions and their carbon footprint.</div>
+          <div className="page-desc">Analyze past query executions and their carbon footprint. Click a row to open full details and optimization.</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-outline btn-sm" onClick={handleClear}>
@@ -181,16 +199,17 @@ export default function ReportsPage() {
                 <th style={{ width: 80, textAlign: 'center' }}>Score</th>
                 <th style={{ width: 110, textAlign: 'right' }}>Total CO₂ (g)</th>
                 <th style={{ width: 150 }}>Timestamp</th>
+                <th style={{ width: 110, textAlign: 'center' }}>Status</th>
                 <th style={{ width: 60 }} />
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 36 }}>
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 36 }}>
                   <span className="spinner" style={{ display: 'inline-block' }} />
                 </td></tr>
               ) : data.rows.length === 0 ? (
-                <tr><td colSpan={8}>
+                <tr><td colSpan={9}>
                   <div className="empty-state">
                     <span className="material-symbols-outlined empty-icon">history</span>
                     <div className="empty-text">No records found. Try adjusting filters or analyze some queries.</div>
@@ -202,7 +221,20 @@ export default function ReportsPage() {
                 const isCopied = copiedId === row.id;
                 const runtimeMs = row.runtime_s ? (parseFloat(row.runtime_s) * 1000).toFixed(0) : '—';
                 return (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    role="button"
+                    tabIndex={0}
+                    title="View query details & optimization"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate(`/query/${row.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/query/${row.id}`);
+                      }
+                    }}
+                  >
                     <td className="mono dim" style={{ fontSize: 11 }}>#{row.id}</td>
                     <td className="col-code">
                       <SqlCell sql={row.query_text || ''} />
@@ -218,12 +250,48 @@ export default function ReportsPage() {
                     <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                       {fmtTimeAgo(row.created_at)}
                     </td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'center' }}>
+                      {row.optimized_at ? (
+                        <span
+                          title={`Marked optimized — click to undo`}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            fontSize: 11, color: 'var(--green)',
+                            background: 'rgba(0,255,136,0.1)',
+                            border: '1px solid rgba(0,255,136,0.3)',
+                            borderRadius: 12, padding: '2px 8px', cursor: 'pointer',
+                          }}
+                          onClick={(e) => handleMarkOptimized(e, row)}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check_circle</span>
+                          Done
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button
+                        type="button"
+                        className="topbar-btn"
+                        title={row.optimized_at ? 'Undo optimized' : 'Mark as optimized'}
+                        disabled={optimizingId === row.id}
+                        style={{ color: row.optimized_at ? 'var(--green)' : undefined, marginRight: 2 }}
+                        onClick={(e) => handleMarkOptimized(e, row)}
+                      >
+                        <span className="material-symbols-outlined sz-16">
+                          {optimizingId === row.id ? 'hourglass_empty' : row.optimized_at ? 'undo' : 'task_alt'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
                         className="topbar-btn"
                         title="Open in editor"
                         style={{ color: isCopied ? 'var(--green)' : undefined }}
-                        onClick={() => copyToEditor(row.query_text, row.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToEditor(row.query_text, row.id);
+                        }}
                       >
                         <span className="material-symbols-outlined sz-16">
                           {isCopied ? 'check' : 'edit'}
